@@ -3,7 +3,6 @@ package main
 import (
 	"bytes"
 	"encoding/json"
-	"flag"
 	"fmt"
 	"io"
 	"net/http"
@@ -12,7 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
-	
+
 	"golang.org/x/term"
 )
 
@@ -68,13 +67,13 @@ func printHelp() {
 	fmt.Println("  ai-commit-msg [OPTIONS]")
 	fmt.Println("")
 	fmt.Println("OPTIONS:")
-	fmt.Println("  --key string      Anthropic API key (can also be set with ANTHROPIC_API_KEY environment variable")
-	fmt.Println("                    or stored in the Mac keychain)")
-	fmt.Println("  --jira string     Jira issue ID (e.g., GTBUG-123 or GTN-456) to include in the commit message")
-	fmt.Println("  --store-key       Store the provided API key in Mac keychain for future use")
-	fmt.Println("  --auto            Automatically commit using the generated message without confirmation")
-	fmt.Println("  --verbose         Enable verbose output for debugging")
-	fmt.Println("  --help            Display this help information")
+	fmt.Println("  -k, --key             Anthropic API key (can also be set with ANTHROPIC_API_KEY environment variable")
+	fmt.Println("                        or stored in the Mac keychain)")
+	fmt.Println("  -j, --jira            Jira issue ID (e.g., GTBUG-123 or GTN-456) to include in the commit message")
+	fmt.Println("  -s, --store-key       Store the provided API key in Mac keychain for future use")
+	fmt.Println("  -a, --auto            Automatically commit using the generated message without confirmation")
+	fmt.Println("  -v, --verbose         Enable verbose output for debugging")
+	fmt.Println("  -h, --help            Display this help information")
 	fmt.Println("")
 	fmt.Println("SETUP GUIDE:")
 	fmt.Println("  First-time users:")
@@ -83,6 +82,12 @@ func printHelp() {
 	fmt.Println("    3. Choose to save it securely in your Mac keychain")
 	fmt.Println("")
 	fmt.Println("  For subsequent uses, just run 'ai-commit-msg' - your key will be loaded automatically")
+	fmt.Println("")
+	fmt.Println("KEYCHAIN STORAGE:")
+	fmt.Println("  The API key is stored in the Mac keychain with these identifiers:")
+	fmt.Println("  - Service name: " + keychainService)
+	fmt.Println("  - Account name: " + keychainAccount)
+	fmt.Println("  You can view or delete this entry using Keychain Access app or the 'security' command.")
 	fmt.Println("")
 	fmt.Println("JIRA INTEGRATION:")
 	fmt.Println("  The tool will include Jira issue IDs in commit messages:")
@@ -105,13 +110,13 @@ func printHelp() {
 	fmt.Println("  ai-commit-msg")
 	fmt.Println("")
 	fmt.Println("  # Generate with a specific Jira issue ID:")
-	fmt.Println("  ai-commit-msg --jira GTBUG-123")
+	fmt.Println("  ai-commit-msg -j GTBUG-123")
 	fmt.Println("")
 	fmt.Println("  # Generate and automatically commit:")
-	fmt.Println("  ai-commit-msg --auto")
+	fmt.Println("  ai-commit-msg -a")
 	fmt.Println("")
 	fmt.Println("  # Generate with verbose output:")
-	fmt.Println("  ai-commit-msg --verbose")
+	fmt.Println("  ai-commit-msg -v")
 	fmt.Println("")
 }
 
@@ -133,7 +138,7 @@ func findExecutableDir() (string, error) {
 	if err == nil {
 		return filepath.Dir(execPath), nil
 	}
-	
+
 	// Fallback to current working directory
 	cwd, err := os.Getwd()
 	if err != nil {
@@ -147,18 +152,18 @@ func readPromptFile(filename string) (string, error) {
 	// First check if the file exists relative to the executable directory
 	promptsDir := filepath.Join(executableDir, "prompts")
 	promptPath := filepath.Join(promptsDir, filename)
-	
+
 	if _, err := os.Stat(promptPath); os.IsNotExist(err) {
 		// If not found, look in the project directory structure
 		// This helps during development
 		projectDir := filepath.Join(executableDir, "..")
 		promptPath = filepath.Join(projectDir, "prompts", filename)
-		
+
 		// Check a few more possible locations
 		if _, err := os.Stat(promptPath); os.IsNotExist(err) {
 			// Try the current directory
 			promptPath = filepath.Join("prompts", filename)
-			
+
 			// If still not found, return the default prompt
 			if _, err := os.Stat(promptPath); os.IsNotExist(err) {
 				if filename == "system_prompt.txt" {
@@ -170,13 +175,13 @@ func readPromptFile(filename string) (string, error) {
 			}
 		}
 	}
-	
+
 	logVerbose("Reading prompt file from: %s", promptPath)
 	content, err := os.ReadFile(promptPath)
 	if err != nil {
 		return "", err
 	}
-	
+
 	return string(content), nil
 }
 
@@ -235,6 +240,106 @@ Please provide a suitable commit message that follows our team's guidelines exac
 The component should reflect the primary area of code being changed. For a database change, use "db"; for UI changes, use "ui", etc.`
 }
 
+func parseArgs() (string, string, bool, bool, bool, []string) {
+	// Variables to store the extracted values
+	var apiKey, jiraID string
+	var storeKey, autoCommit, helpFlag bool
+	var unknownFlags []string
+
+	// Known flags
+	knownSingleFlags := map[string]bool{
+		"-v": true, "--verbose": true,
+		"-a": true, "--auto": true,
+		"-s": true, "--store-key": true,
+		"-h": true, "--help": true,
+	}
+
+	knownParamFlags := map[string]bool{
+		"-k": true, "--key": true,
+		"-j": true, "--jira": true,
+	}
+
+	// First, check for help flag (simple case, just check for -h or --help)
+	for _, arg := range os.Args[1:] {
+		if arg == "-h" || arg == "--help" {
+			helpFlag = true
+			return "", "", false, false, true, unknownFlags
+		}
+	}
+
+	// Process all other args
+	for i := 1; i < len(os.Args); i++ {
+		arg := os.Args[i]
+
+		// Check for flags that don't require values
+		if knownSingleFlags[arg] {
+			// Set appropriate flag
+			switch arg {
+			case "-v", "--verbose":
+				verbose = true
+			case "-a", "--auto":
+				autoCommit = true
+			case "-s", "--store-key":
+				storeKey = true
+			}
+			continue
+		}
+
+		// Check for flags that require values
+		if knownParamFlags[arg] && i+1 < len(os.Args) {
+			// Set appropriate value
+			switch arg {
+			case "-k", "--key":
+				apiKey = os.Args[i+1]
+			case "-j", "--jira":
+				jiraID = os.Args[i+1]
+			}
+			i++ // Skip the next argument since we've used it
+			continue
+		}
+
+		// Check for combined forms like -vah (verbose+auto+help)
+		if strings.HasPrefix(arg, "-") && !strings.HasPrefix(arg, "--") && len(arg) > 2 {
+			// For combined flags like -vah, process each character
+			validCombined := true
+			for _, char := range arg[1:] {
+				flagChar := fmt.Sprintf("-%c", char)
+				if knownSingleFlags[flagChar] {
+					// Set appropriate flag
+					switch flagChar {
+					case "-v":
+						verbose = true
+					case "-a":
+						autoCommit = true
+					case "-s":
+						storeKey = true
+					case "-h":
+						helpFlag = true
+					}
+				} else if knownParamFlags[flagChar] {
+					// This is a flag that needs a parameter, which isn't valid in combined form
+					validCombined = false
+					break
+				} else {
+					validCombined = false
+					break
+				}
+			}
+
+			if validCombined {
+				continue
+			}
+		}
+
+		// If we get here, it's an unknown flag or parameter
+		if strings.HasPrefix(arg, "-") {
+			unknownFlags = append(unknownFlags, arg)
+		}
+	}
+
+	return apiKey, jiraID, storeKey, autoCommit, helpFlag, unknownFlags
+}
+
 func main() {
 	// Get the executable directory
 	var err error
@@ -244,95 +349,98 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Define flags
-	apiKey := flag.String("key", "", "Anthropic API key")
-	jiraID := flag.String("jira", "", "Jira issue ID (e.g., GTBUG-123 or GTN-456)")
-	autoCommit := flag.Bool("auto", false, "Automatically commit using the generated message")
-	storeKey := flag.Bool("store-key", false, "Store the provided API key in Mac keychain")
-	helpFlag := flag.Bool("help", false, "Display help information")
-	verboseFlag := flag.Bool("verbose", false, "Enable verbose output")
-	
-	// Parse flags
-	flag.Parse()
-	
-	// Set verbose mode globally
-	verbose = *verboseFlag
-	
+	// Parse command line arguments directly
+	apiKey, jiraID, storeKey, autoCommit, helpFlag, unknownFlags := parseArgs()
+
+	// Handle unknown flags
+	if len(unknownFlags) > 0 {
+		fmt.Println("Error: Unknown flag(s) detected:")
+		for _, flag := range unknownFlags {
+			fmt.Printf("  %s\n", flag)
+		}
+		fmt.Println("Use -h or --help to see available options")
+		fmt.Println()
+		// Exit the program with an error code
+		os.Exit(1)
+	}
+
 	// If help flag is provided, show help and exit
-	if *helpFlag {
+	if helpFlag {
 		printHelp()
 		os.Exit(0)
 	}
 
 	logVerbose("Starting AI Commit Message Generator v%s", version)
 	logVerbose("Executable directory: %s", executableDir)
-	
-	if *jiraID != "" {
-		logVerbose("Using provided Jira ID: %s", *jiraID)
+	logVerbose("Keychain configuration: Service='%s', Account='%s'", keychainService, keychainAccount)
+
+	if jiraID != "" {
+		logVerbose("Using provided Jira ID: %s", jiraID)
 	}
 
 	// Handle storing the key in keychain if requested
-	if *storeKey && *apiKey != "" {
+	if storeKey && apiKey != "" {
 		logVerbose("Storing API key in keychain...")
-		if err := storeAPIKeyInKeychain(*apiKey); err != nil {
+		if err := storeAPIKeyInKeychain(apiKey); err != nil {
 			fmt.Printf("Error storing API key in keychain: %v\n", err)
 			os.Exit(1)
 		}
 		fmt.Println("API key stored successfully in keychain.")
-		if !*autoCommit {
+		if !autoCommit {
 			// Exit if we're just storing the key and not committing
 			os.Exit(0)
 		}
 	}
 
 	// Get API key from various sources
-	if *apiKey == "" {
+	if apiKey == "" {
 		logVerbose("No API key provided via --key flag, checking environment...")
 		// Try environment variable
-		*apiKey = os.Getenv("ANTHROPIC_API_KEY")
-		
+		apiKey = os.Getenv("ANTHROPIC_API_KEY")
+
 		// If still empty, try Mac keychain
-		if *apiKey == "" {
-			logVerbose("No API key found in environment, checking Mac keychain...")
+		if apiKey == "" {
+			logVerbose("No API key found in environment, checking Mac keychain (service='%s', account='%s')...",
+				keychainService, keychainAccount)
 			var err error
-			*apiKey, err = getAPIKeyFromKeychain()
+			apiKey, err = getAPIKeyFromKeychain()
 			if err != nil {
 				logVerbose("Error retrieving API key from keychain: %v", err)
 				// Continue without exiting, as we'll check for empty key below
-			} else if *apiKey != "" {
+			} else if apiKey != "" {
 				logVerbose("API key successfully retrieved from keychain")
 			}
 		} else {
 			logVerbose("API key found in environment variable")
 		}
-		
+
 		// If still empty, prompt the user
-		if *apiKey == "" {
+		if apiKey == "" {
 			fmt.Println("\nNo API key found. You'll need an Anthropic API key to use this tool.")
 			fmt.Println("You can get one from: https://console.anthropic.com/")
 			fmt.Println("")
-			
+
 			// Read password without echoing it
 			enteredKey, err := readPasswordFromTerminal("Please enter your Anthropic API key: ")
 			if err != nil {
 				fmt.Printf("Error reading API key: %v\n", err)
 				os.Exit(1)
 			}
-			
-			*apiKey = strings.TrimSpace(enteredKey)
-			
-			if *apiKey == "" {
+
+			apiKey = strings.TrimSpace(enteredKey)
+
+			if apiKey == "" {
 				fmt.Println("No API key provided. Exiting.")
 				os.Exit(1)
 			}
-			
+
 			fmt.Print("Would you like to store this API key securely in your Mac keychain for future use? (y/n): ")
 			var saveResponse string
 			fmt.Scanln(&saveResponse)
 			saveResponse = strings.TrimSpace(strings.ToLower(saveResponse))
-			
+
 			if saveResponse == "y" || saveResponse == "yes" {
-				if err := storeAPIKeyInKeychain(*apiKey); err != nil {
+				if err := storeAPIKeyInKeychain(apiKey); err != nil {
 					fmt.Printf("Error storing API key in keychain: %v\n", err)
 				} else {
 					fmt.Println("API key stored successfully in keychain. You won't need to enter it again.")
@@ -345,7 +453,7 @@ func main() {
 
 	// Get git diff information
 	logVerbose("Getting git diff information...")
-	diffInfo, err := getGitDiff(*jiraID)
+	diffInfo, err := getGitDiff(jiraID)
 	if err != nil {
 		fmt.Printf("Error getting git diff: %v\n", err)
 		os.Exit(1)
@@ -366,7 +474,7 @@ func main() {
 	// Generate commit message
 	fmt.Println("Generating commit message with Claude AI...")
 	startTime := time.Now()
-	message, err := generateCommitMessage(*apiKey, diffInfo)
+	message, err := generateCommitMessage(apiKey, diffInfo)
 	if err != nil {
 		fmt.Printf("Error generating commit message: %v\n", err)
 		os.Exit(1)
@@ -381,7 +489,7 @@ func main() {
 	fmt.Println(strings.Repeat("=", 50))
 
 	// Handle the commit
-	if *autoCommit {
+	if autoCommit {
 		logVerbose("Auto-commit enabled, committing changes...")
 		err = commitWithMessage(message)
 		if err != nil {
@@ -445,7 +553,7 @@ func storeAPIKeyInKeychain(apiKey string) error {
 	_ = deleteCmd.Run()
 
 	// Add the new password
-	logVerbose("Adding new keychain entry...")
+	logVerbose("Adding new keychain entry (service='%s', account='%s')...", keychainService, keychainAccount)
 	addCmd := exec.Command("security", "add-generic-password", "-s", keychainService, "-a", keychainAccount, "-w", apiKey)
 	if err := addCmd.Run(); err != nil {
 		return fmt.Errorf("failed to store API key in keychain")
@@ -496,17 +604,17 @@ func getGitDiff(jiraID string) (GitDiff, error) {
 	if diffInfo.JiraID == "" {
 		// Common branch naming patterns like feature/GTBUG-123-description or bugfix/GTN-456-description
 		logVerbose("Trying to extract Jira ID from branch name: %s", diffInfo.Branch)
-		
+
 		// Look for GTBUG-XXX pattern
 		if idx := strings.Index(strings.ToUpper(diffInfo.Branch), "GTBUG-"); idx >= 0 {
 			start := idx
 			end := start + 6 // "GTBUG-" length
-			
+
 			// Find the end of the number part
 			for end < len(diffInfo.Branch) && (diffInfo.Branch[end] >= '0' && diffInfo.Branch[end] <= '9') {
 				end++
 			}
-			
+
 			if end > start+6 { // Make sure we found at least one digit
 				diffInfo.JiraID = diffInfo.Branch[start:end]
 				logVerbose("Extracted Jira ID from branch name: %s", diffInfo.JiraID)
@@ -515,12 +623,12 @@ func getGitDiff(jiraID string) (GitDiff, error) {
 			// Look for GTN-XXX pattern
 			start := idx
 			end := start + 4 // "GTN-" length
-			
+
 			// Find the end of the number part
 			for end < len(diffInfo.Branch) && (diffInfo.Branch[end] >= '0' && diffInfo.Branch[end] <= '9') {
 				end++
 			}
-			
+
 			if end > start+4 { // Make sure we found at least one digit
 				diffInfo.JiraID = diffInfo.Branch[start:end]
 				logVerbose("Extracted Jira ID from branch name: %s", diffInfo.JiraID)
@@ -538,14 +646,14 @@ func generateCommitMessage(apiKey string, diffInfo GitDiff) (string, error) {
 		logVerbose("Error reading system prompt: %v, using default", err)
 		systemPrompt = getDefaultSystemPrompt()
 	}
-	
+
 	// Read user prompt template from file
 	userPromptTemplate, err := readPromptFile("user_prompt.txt")
 	if err != nil {
 		logVerbose("Error reading user prompt: %v, using default", err)
 		userPromptTemplate = getDefaultUserPrompt()
 	}
-	
+
 	// Format the user prompt with the diff information
 	userPrompt := fmt.Sprintf(
 		userPromptTemplate,
