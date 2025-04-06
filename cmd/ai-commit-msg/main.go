@@ -43,10 +43,11 @@ type Content struct {
 }
 
 type GitDiff struct {
-	StagedFiles []string
-	Diff        string
-	Branch      string
-	JiraID      string // New field for Jira ID
+	StagedFiles     []string
+	Diff            string
+	Branch          string
+	JiraID          string // New field for Jira ID
+	JiraDescription string // New field for Jira description
 }
 
 var verbose bool
@@ -70,6 +71,7 @@ func printHelp() {
 	fmt.Println("  -k, --key             Anthropic API key (can also be set with ANTHROPIC_API_KEY environment variable")
 	fmt.Println("                        or stored in the Mac keychain)")
 	fmt.Println("  -j, --jira            Jira issue ID (e.g., GTBUG-123 or GTN-456) to include in the commit message")
+	fmt.Println("  -d, --jira-desc       Jira issue description to provide additional context for the commit message")
 	fmt.Println("  -s, --store-key       Store the provided API key in Mac keychain for future use")
 	fmt.Println("  -a, --auto            Automatically commit using the generated message without confirmation")
 	fmt.Println("  -v, --verbose         Enable verbose output for debugging")
@@ -93,6 +95,7 @@ func printHelp() {
 	fmt.Println("  The tool will include Jira issue IDs in commit messages:")
 	fmt.Println("  - Specify an ID directly: ai-commit-msg --jira GTBUG-123")
 	fmt.Println("  - If no ID is provided, the tool will suggest a placeholder")
+	fmt.Println("  - Add a description: ai-commit-msg --jira GTBUG-123 --jira-desc \"Fix memory leak issue\"")
 	fmt.Println("")
 	fmt.Println("ALTERNATIVE SETUP METHODS:")
 	fmt.Println("  1. Mac Keychain (recommended):")
@@ -111,6 +114,9 @@ func printHelp() {
 	fmt.Println("")
 	fmt.Println("  # Generate with a specific Jira issue ID:")
 	fmt.Println("  ai-commit-msg -j GTBUG-123")
+	fmt.Println("")
+	fmt.Println("  # Generate with a Jira issue ID and description:")
+	fmt.Println("  ai-commit-msg -j GTBUG-123 -d \"Fix memory leak in authentication process\"")
 	fmt.Println("")
 	fmt.Println("  # Generate and automatically commit:")
 	fmt.Println("  ai-commit-msg -a")
@@ -153,29 +159,6 @@ func readPromptFile(filename string) (string, error) {
 	promptsDir := filepath.Join(executableDir, "prompts")
 	promptPath := filepath.Join(promptsDir, filename)
 
-	if _, err := os.Stat(promptPath); os.IsNotExist(err) {
-		// If not found, look in the project directory structure
-		// This helps during development
-		projectDir := filepath.Join(executableDir, "..")
-		promptPath = filepath.Join(projectDir, "prompts", filename)
-
-		// Check a few more possible locations
-		if _, err := os.Stat(promptPath); os.IsNotExist(err) {
-			// Try the current directory
-			promptPath = filepath.Join("prompts", filename)
-
-			// If still not found, return the default prompt
-			if _, err := os.Stat(promptPath); os.IsNotExist(err) {
-				if filename == "system_prompt.txt" {
-					return getDefaultSystemPrompt(), nil
-				} else if filename == "user_prompt.txt" {
-					return getDefaultUserPrompt(), nil
-				}
-				return "", fmt.Errorf("prompt file %s not found", filename)
-			}
-		}
-	}
-
 	logVerbose("Reading prompt file from: %s", promptPath)
 	content, err := os.ReadFile(promptPath)
 	if err != nil {
@@ -185,64 +168,9 @@ func readPromptFile(filename string) (string, error) {
 	return string(content), nil
 }
 
-// getDefaultSystemPrompt returns the default system prompt
-func getDefaultSystemPrompt() string {
-	return `You are an expert developer creating high-quality git commit messages for a professional development team that uses Jira.
-Follow these precise guidelines:
-
-1. Use the imperative mood ("Add feature" not "Added feature")
-2. First line must be under 50 characters and summarize the change
-3. ALWAYS include the Jira issue ID in the first line, using one of these formats:
-   - For bugs: "fix(component): GTBUG-123 Fix description"
-   - For features: "feat(component): GTN-123 Add description"
-4. After the summary line, include a blank line followed by a more detailed description
-5. In the detailed description, explain WHY the change was made, not just WHAT was changed
-6. For complex changes, use bullet points to list individual modifications
-
-The commit message should follow this conventional commits format:
-<type>(<optional scope>): <Jira ID> <short description>
-
-<detailed description>
-
-Where type is one of:
-- feat: A new feature
-- fix: A bug fix
-- docs: Documentation changes
-- style: Formatting, missing semicolons, etc; no code change
-- refactor: Code change that neither fixes a bug nor adds a feature
-- perf: Code change that improves performance
-- test: Adding or updating tests
-- chore: Changes to build process or auxiliary tools
-
-If no Jira ID is obvious from the changes, use your best judgment to determine if it's a bug fix (GTBUG-XXX) or a feature (GTN-XXX) and use a placeholder ID like GTBUG-??? or GTN-???, noting that the developer should replace it with the correct ID.`
-}
-
-// getDefaultUserPrompt returns the default user prompt
-func getDefaultUserPrompt() string {
-	return `I need a commit message for the following changes on branch '%s'.
-
-Files changed:
-%s
-
-Diff:
-%s
-
-Jira ID: %s
-
-Please provide a suitable commit message that follows our team's guidelines exactly:
-1. First line must include the Jira issue ID specified above
-2. Use the format: "<type>(<component>): <Jira ID> <description>"
-3. If no Jira ID is provided, use a placeholder (GTBUG-??? or GTN-???)
-4. Analyze whether the change is a bugfix (GTBUG) or a feature (GTN) based on the nature of the changes
-5. Make sure the first line is under 50 characters
-6. Add a detailed description after a blank line
-
-The component should reflect the primary area of code being changed. For a database change, use "db"; for UI changes, use "ui", etc.`
-}
-
-func parseArgs() (string, string, bool, bool, bool, []string) {
+func parseArgs() (string, string, string, bool, bool, bool, []string) {
 	// Variables to store the extracted values
-	var apiKey, jiraID string
+	var apiKey, jiraID, jiraDesc string
 	var storeKey, autoCommit, helpFlag bool
 	var unknownFlags []string
 
@@ -257,13 +185,14 @@ func parseArgs() (string, string, bool, bool, bool, []string) {
 	knownParamFlags := map[string]bool{
 		"-k": true, "--key": true,
 		"-j": true, "--jira": true,
+		"-d": true, "--jira-desc": true,
 	}
 
 	// First, check for help flag (simple case, just check for -h or --help)
 	for _, arg := range os.Args[1:] {
 		if arg == "-h" || arg == "--help" {
 			helpFlag = true
-			return "", "", false, false, true, unknownFlags
+			return "", "", "", false, false, true, unknownFlags
 		}
 	}
 
@@ -293,6 +222,8 @@ func parseArgs() (string, string, bool, bool, bool, []string) {
 				apiKey = os.Args[i+1]
 			case "-j", "--jira":
 				jiraID = os.Args[i+1]
+			case "-d", "--jira-desc":
+				jiraDesc = os.Args[i+1]
 			}
 			i++ // Skip the next argument since we've used it
 			continue
@@ -337,7 +268,7 @@ func parseArgs() (string, string, bool, bool, bool, []string) {
 		}
 	}
 
-	return apiKey, jiraID, storeKey, autoCommit, helpFlag, unknownFlags
+	return apiKey, jiraID, jiraDesc, storeKey, autoCommit, helpFlag, unknownFlags
 }
 
 func main() {
@@ -350,7 +281,7 @@ func main() {
 	}
 
 	// Parse command line arguments directly
-	apiKey, jiraID, storeKey, autoCommit, helpFlag, unknownFlags := parseArgs()
+	apiKey, jiraID, jiraDesc, storeKey, autoCommit, helpFlag, unknownFlags := parseArgs()
 
 	// Handle unknown flags
 	if len(unknownFlags) > 0 {
@@ -376,6 +307,9 @@ func main() {
 
 	if jiraID != "" {
 		logVerbose("Using provided Jira ID: %s", jiraID)
+		if jiraDesc != "" {
+			logVerbose("Using provided Jira description: %s", jiraDesc)
+		}
 	}
 
 	// Handle storing the key in keychain if requested
@@ -453,7 +387,7 @@ func main() {
 
 	// Get git diff information
 	logVerbose("Getting git diff information...")
-	diffInfo, err := getGitDiff(jiraID)
+	diffInfo, err := getGitDiff(jiraID, jiraDesc)
 	if err != nil {
 		fmt.Printf("Error getting git diff: %v\n", err)
 		os.Exit(1)
@@ -561,9 +495,10 @@ func storeAPIKeyInKeychain(apiKey string) error {
 	return nil
 }
 
-func getGitDiff(jiraID string) (GitDiff, error) {
+func getGitDiff(jiraID string, jiraDesc string) (GitDiff, error) {
 	var diffInfo GitDiff
 	diffInfo.JiraID = jiraID
+	diffInfo.JiraDescription = jiraDesc
 
 	// Check if we're in a git repository
 	logVerbose("Checking if current directory is a git repository...")
@@ -642,17 +577,9 @@ func getGitDiff(jiraID string) (GitDiff, error) {
 func generateCommitMessage(apiKey string, diffInfo GitDiff) (string, error) {
 	// Read system prompt from file
 	systemPrompt, err := readPromptFile("system_prompt.txt")
-	if err != nil {
-		logVerbose("Error reading system prompt: %v, using default", err)
-		systemPrompt = getDefaultSystemPrompt()
-	}
 
 	// Read user prompt template from file
 	userPromptTemplate, err := readPromptFile("user_prompt.txt")
-	if err != nil {
-		logVerbose("Error reading user prompt: %v, using default", err)
-		userPromptTemplate = getDefaultUserPrompt()
-	}
 
 	// Format the user prompt with the diff information
 	userPrompt := fmt.Sprintf(
@@ -660,7 +587,8 @@ func generateCommitMessage(apiKey string, diffInfo GitDiff) (string, error) {
 		diffInfo.Branch,
 		strings.Join(diffInfo.StagedFiles, "\n"),
 		diffInfo.Diff,
-		diffInfo.JiraID, // Add the Jira ID to the prompt
+		diffInfo.JiraID,
+		diffInfo.JiraDescription,
 	)
 
 	logVerbose("Building Claude API request...")
