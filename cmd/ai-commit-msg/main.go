@@ -52,16 +52,38 @@ type GitDiff struct {
 	JiraDescription string // Field for Jira description
 }
 
-var verbose bool
+// VerbosityLevel represents the level of verbosity for logging
+type VerbosityLevel int
+
+const (
+	// Silent means no logs will be printed
+	Silent VerbosityLevel = iota
+	// Normal shows basic operation logs
+	Normal
+	// Verbose shows detailed operation logs
+	Verbose
+	// MoreVerbose shows even more detailed logs including intermediate steps
+	MoreVerbose
+	// Debug shows all possible logs including debug information
+	Debug
+)
+
+var verbosityLevel VerbosityLevel = Silent
 var executableDir string
 var keyManager *key.KeyManager
 var contextLines int // Number of context lines for git diff
 
-// logVerbose prints a message only if verbose mode is enabled
-func logVerbose(format string, args ...interface{}) {
-	if verbose {
+// log prints a message only if the current verbosity level is >= the required level
+func log(level VerbosityLevel, format string, args ...interface{}) {
+	if verbosityLevel >= level {
 		fmt.Printf(format+"\n", args...)
 	}
+}
+
+// Legacy logVerbose function for backward compatibility
+// logs at Verbose level (2)
+func logVerbose(format string, args ...interface{}) {
+	log(Verbose, format, args...)
 }
 
 func printHelp() {
@@ -78,7 +100,9 @@ func printHelp() {
 	fmt.Println("  -d, --jira-desc       Jira issue description to provide additional context for the commit message")
 	fmt.Println("  -s, --store-key       Store the provided API key in your system credential manager for future use")
 	fmt.Println("  -a, --auto            Automatically commit using the generated message without confirmation")
-	fmt.Println("  -v, --verbose         Enable verbose output for debugging")
+	fmt.Println("  -v                    Enable verbose output (level 1)")
+	fmt.Println("  -vv                   Enable more verbose output (level 2)")
+	fmt.Println("  -vvv                  Enable debug output (level 3)")
 	fmt.Println("  -c, --context N       Number of context lines to include in the diff (default: 3)")
 	fmt.Println("  -cc                   Include more context lines (10)")
 	fmt.Println("  -ccc                  Include maximum context (entire file)")
@@ -97,7 +121,7 @@ func printHelp() {
 
 	// Initialize keyManager if it's nil
 	if keyManager == nil {
-		keyManager = key.NewKeyManager(verbose)
+		keyManager = key.NewKeyManager(verbosityLevel >= Verbose)
 	}
 
 	fmt.Printf("  The API key is stored in the %s with:\n", keyManager.GetCredentialStoreName())
@@ -126,8 +150,10 @@ func printHelp() {
 	fmt.Println("  # Generate and automatically commit:")
 	fmt.Println("  ai-commit-msg -a")
 	fmt.Println("")
-	fmt.Println("  # Generate with verbose output:")
-	fmt.Println("  ai-commit-msg -v")
+	fmt.Println("  # Generate with different levels of verbosity:")
+	fmt.Println("  ai-commit-msg -v     # Basic verbose output")
+	fmt.Println("  ai-commit-msg -vv    # More detailed output")
+	fmt.Println("  ai-commit-msg -vvv   # Debug level output")
 	fmt.Println("")
 }
 
@@ -185,6 +211,8 @@ func parseArgs() (string, string, string, bool, bool, bool, []string) {
 	// Known flags
 	knownSingleFlags := map[string]bool{
 		"-v": true, "--verbose": true,
+		"-vv": true,
+		"-vvv": true,
 		"-a": true, "--auto": true,
 		"-s": true, "--store-key": true,
 		"-h": true, "--help": true,
@@ -216,7 +244,11 @@ func parseArgs() (string, string, string, bool, bool, bool, []string) {
 			// Set appropriate flag
 			switch arg {
 			case "-v", "--verbose":
-				verbose = true
+				verbosityLevel = Verbose
+			case "-vv":
+				verbosityLevel = MoreVerbose
+			case "-vvv":
+				verbosityLevel = Debug
 			case "-a", "--auto":
 				autoCommit = true
 			case "-s", "--store-key":
@@ -258,7 +290,10 @@ func parseArgs() (string, string, string, bool, bool, bool, []string) {
 					// Set appropriate flag
 					switch flagChar {
 					case "-v":
-						verbose = true
+						// In combined flags, treat -v as basic verbose
+						if verbosityLevel < Verbose {
+							verbosityLevel = Verbose
+						}
 					case "-a":
 						autoCommit = true
 					case "-s":
@@ -303,7 +338,7 @@ func main() {
 	apiKey, jiraID, jiraDesc, storeKey, autoCommit, helpFlag, unknownFlags := parseArgs()
 
 	// Initialize key manager
-	keyManager = key.NewKeyManager(verbose)
+	keyManager = key.NewKeyManager(verbosityLevel >= Verbose)
 
 	// Handle unknown flags
 	if len(unknownFlags) > 0 {
@@ -323,10 +358,11 @@ func main() {
 		os.Exit(0)
 	}
 
-	logVerbose("Starting AI Commit Message Generator v%s", version)
-	logVerbose("Executable directory: %s", executableDir)
-	logVerbose("Platform: %s, Credential store: %s", keyManager.GetPlatform(), keyManager.GetCredentialStoreName())
-	logVerbose("Context lines: %d", contextLines)
+	log(Normal, "Starting AI Commit Message Generator v%s", version)
+	log(Verbose, "Executable directory: %s", executableDir)
+	log(Verbose, "Platform: %s, Credential store: %s", keyManager.GetPlatform(), keyManager.GetCredentialStoreName())
+	log(MoreVerbose, "Verbosity level: %d", verbosityLevel)
+	log(Verbose, "Context lines: %d", contextLines)
 
 	if jiraID != "" {
 		logVerbose("Using provided Jira ID: %s", jiraID)
@@ -434,7 +470,7 @@ func main() {
 	}
 
 	logVerbose("Found %d staged files in branch '%s'", len(diffInfo.StagedFiles), diffInfo.Branch)
-	if verbose {
+	if verbosityLevel >= MoreVerbose {
 		for i, file := range diffInfo.StagedFiles {
 			fmt.Printf("  %d: %s\n", i+1, file)
 		}
@@ -514,13 +550,46 @@ func getGitDiff(jiraID string, jiraDesc string) (GitDiff, error) {
 	}
 
 	// Get list of staged files
-	logVerbose("Getting list of staged files...")
+	log(Verbose, "Getting list of staged files...")
 	cmd = exec.Command("git", "diff", "--name-only", "--cached")
 	output, err := cmd.Output()
 	if err != nil {
 		return diffInfo, err
 	}
 	diffInfo.StagedFiles = strings.Split(strings.TrimSpace(string(output)), "\n")
+	
+	// Log file details at MoreVerbose level with clear formatting
+	if verbosityLevel >= MoreVerbose {
+		log(MoreVerbose, "===== STAGED FILES (%d) =====", len(diffInfo.StagedFiles))
+		for i, file := range diffInfo.StagedFiles {
+			log(MoreVerbose, "File #%d: %s", i+1, file)
+			
+			// Get file stats
+			statCmd := exec.Command("git", "diff", "--cached", "--stat", file)
+			statOutput, statErr := statCmd.Output()
+			if statErr == nil {
+				log(MoreVerbose, "  Changes: %s", strings.TrimSpace(string(statOutput)))
+			}
+			
+			// For debug level, show more detailed file info
+			if verbosityLevel >= Debug {
+				// Get file type
+				typeCmd := exec.Command("git", "check-attr", "diff", "--", file)
+				typeOutput, typeErr := typeCmd.Output()
+				if typeErr == nil {
+					log(Debug, "  Attributes: %s", strings.TrimSpace(string(typeOutput)))
+				}
+				
+				// Get file size
+				sizeCmd := exec.Command("git", "ls-files", "-s", file)
+				sizeOutput, sizeErr := sizeCmd.Output()
+				if sizeErr == nil {
+					log(Debug, "  Details: %s", strings.TrimSpace(string(sizeOutput)))
+				}
+			}
+		}
+		log(MoreVerbose, "=============================")
+	}
 
 	// Get the diff details with context
 	logVerbose("Getting diff details with context lines: %d...", contextLines)
@@ -561,7 +630,7 @@ func getGitDiff(jiraID string, jiraDesc string) (GitDiff, error) {
 			}
 			
 			diffInfo.Diff = fullDiff.String()
-			logVerbose("Full context diff length: %d bytes", len(diffInfo.Diff))
+			log(MoreVerbose, "Full context diff length: %d bytes", len(diffInfo.Diff))
 			
 			// Get the branch info and return
 			diffInfo = getBranchInfo(diffInfo)
@@ -576,7 +645,7 @@ func getGitDiff(jiraID string, jiraDesc string) (GitDiff, error) {
 		return diffInfo, err
 	}
 	diffInfo.Diff = string(output)
-	logVerbose("Diff length: %d bytes", len(diffInfo.Diff))
+	log(MoreVerbose, "Diff length: %d bytes", len(diffInfo.Diff))
 
 	// Get the branch info and return
 	return getBranchInfo(diffInfo), nil
@@ -595,7 +664,46 @@ func getBranchInfo(diffInfo GitDiff) GitDiff {
 	// Try to extract Jira ID from branch name if not provided
 	if diffInfo.JiraID == "" && diffInfo.Branch != "" {
 		// Common branch naming patterns like feature/GTBUG-123-description or bugfix/GTN-456-description
-		logVerbose("Trying to extract Jira ID from branch name: %s", diffInfo.Branch)
+		log(Verbose, "Trying to extract Jira ID from branch name: %s", diffInfo.Branch)
+		
+		// Get more branch info at MoreVerbose level with clear formatting
+		if verbosityLevel >= MoreVerbose {
+			log(MoreVerbose, "===== BRANCH INFO =====")
+			log(MoreVerbose, "Name: %s", diffInfo.Branch)
+			
+			// Get branch creation date
+			dateCmd := exec.Command("git", "show", "-s", "--format=%ci", diffInfo.Branch)
+			dateOutput, dateErr := dateCmd.Output()
+			if dateErr == nil {
+				log(MoreVerbose, "Created: %s", strings.TrimSpace(string(dateOutput)))
+			}
+			
+			// Get branch tracking info
+			trackCmd := exec.Command("git", "for-each-ref", "--format='%(upstream:short)'", "refs/heads/"+diffInfo.Branch)
+			trackOutput, trackErr := trackCmd.Output()
+			if trackErr == nil && len(trackOutput) > 0 {
+				log(MoreVerbose, "Tracks: %s", strings.TrimSpace(string(trackOutput)))
+			}
+			
+			// For debug level, show more detailed branch info
+			if verbosityLevel >= Debug {
+				// Get last commit info
+				commitCmd := exec.Command("git", "log", "-1", "--pretty=%h %s", diffInfo.Branch)
+				commitOutput, commitErr := commitCmd.Output()
+				if commitErr == nil {
+					log(Debug, "Last commit: %s", strings.TrimSpace(string(commitOutput)))
+				}
+				
+				// Get commit count
+				countCmd := exec.Command("git", "rev-list", "--count", diffInfo.Branch)
+				countOutput, countErr := countCmd.Output()
+				if countErr == nil {
+					log(Debug, "Commit count: %s", strings.TrimSpace(string(countOutput)))
+				}
+			}
+			
+			log(MoreVerbose, "======================")
+		}
 
 		// Look for GTBUG-XXX pattern
 		if idx := strings.Index(strings.ToUpper(diffInfo.Branch), "GTBUG-"); idx >= 0 {
@@ -609,7 +717,7 @@ func getBranchInfo(diffInfo GitDiff) GitDiff {
 
 			if end > start+6 { // Make sure we found at least one digit
 				diffInfo.JiraID = diffInfo.Branch[start:end]
-				logVerbose("Extracted Jira ID from branch name: %s", diffInfo.JiraID)
+				log(MoreVerbose, "Extracted Jira ID from branch name: %s", diffInfo.JiraID)
 			}
 		} else if idx := strings.Index(strings.ToUpper(diffInfo.Branch), "GTN-"); idx >= 0 {
 			// Look for GTN-XXX pattern
@@ -623,7 +731,7 @@ func getBranchInfo(diffInfo GitDiff) GitDiff {
 
 			if end > start+4 { // Make sure we found at least one digit
 				diffInfo.JiraID = diffInfo.Branch[start:end]
-				logVerbose("Extracted Jira ID from branch name: %s", diffInfo.JiraID)
+				log(MoreVerbose, "Extracted Jira ID from branch name: %s", diffInfo.JiraID)
 			}
 		}
 	}
@@ -654,7 +762,18 @@ func generateCommitMessage(apiKey string, diffInfo GitDiff) (string, error) {
 		diffInfo.JiraDescription,
 	)
 
-	logVerbose("Building Claude API request...")
+	log(Verbose, "Building Claude API request...")
+	log(Debug, "System prompt length: %d bytes", len(systemPrompt))
+	log(Debug, "User prompt length: %d bytes", len(userPrompt))
+	
+	// Print full prompts at debug level with clear formatting
+	log(Debug, "===== SYSTEM PROMPT START =====")
+	log(Debug, "%s", systemPrompt)
+	log(Debug, "===== SYSTEM PROMPT END =====\n")
+	
+	log(Debug, "===== USER PROMPT START =====")
+	log(Debug, "%s", userPrompt)
+	log(Debug, "===== USER PROMPT END =====\n")
 	request := Request{
 		Model:     "claude-3-haiku-20240307",
 		MaxTokens: 1000,
@@ -669,7 +788,8 @@ func generateCommitMessage(apiKey string, diffInfo GitDiff) (string, error) {
 		return "", err
 	}
 
-	logVerbose("Sending request to Claude API...")
+	log(Verbose, "Sending request to Claude API...")
+	requestStartTime := time.Now()
 	req, err := http.NewRequest("POST", anthropicAPI, bytes.NewBuffer(requestBody))
 	if err != nil {
 		return "", err
@@ -681,14 +801,32 @@ func generateCommitMessage(apiKey string, diffInfo GitDiff) (string, error) {
 
 	client := &http.Client{}
 	resp, err := client.Do(req)
+	requestDuration := time.Since(requestStartTime)
+	log(MoreVerbose, "API request took %.2f seconds", requestDuration.Seconds())
+	
 	if err != nil {
 		return "", err
 	}
 	defer resp.Body.Close()
 
+	// Log HTTP response details at debug level with clear formatting
+	log(Debug, "===== HTTP RESPONSE DETAILS =====")
+	log(Debug, "Status: %s", resp.Status)
+	log(Debug, "Headers:")
+	
+	// Print headers in a more readable format
+	for key, values := range resp.Header {
+		for _, value := range values {
+			log(Debug, "  %s: %s", key, value)
+		}
+	}
+	log(Debug, "==================================")
+	
 	if resp.StatusCode != http.StatusOK {
 		bodyBytes, _ := io.ReadAll(resp.Body)
-		return "", fmt.Errorf("API error (status %d): %s", resp.StatusCode, string(bodyBytes))
+		errorMsg := string(bodyBytes)
+		log(Debug, "API error response body: %s", errorMsg)
+		return "", fmt.Errorf("API error (status %d): %s", resp.StatusCode, errorMsg)
 	}
 
 	logVerbose("Parsing Claude API response...")
@@ -701,6 +839,15 @@ func generateCommitMessage(apiKey string, diffInfo GitDiff) (string, error) {
 		return "", fmt.Errorf("empty response from API")
 	}
 
+	// Format API response for better readability
+	log(Debug, "===== API RESPONSE START =====")
+	formattedJSON, err := json.MarshalIndent(response, "", "  ")
+	if err == nil {
+		log(Debug, "%s", string(formattedJSON))
+	} else {
+		log(Debug, "%+v", response)
+	}
+	log(Debug, "===== API RESPONSE END =====\n")
 	return response.Content[0].Text, nil
 }
 

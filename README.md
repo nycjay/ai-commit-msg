@@ -70,7 +70,9 @@ export ANTHROPIC_API_KEY="your-api-key-here"
 --key "your-api-key"    Specify your Anthropic API key
 --store-key             Store the provided API key in your system's credential manager
 --auto                  Automatically commit using the generated message without confirmation
---verbose               Enable verbose output for debugging
+-v                     Enable verbose output (level 1)
+-vv                     Enable more verbose output (level 2)
+-vvv                    Enable debug output including full prompts (level 3)
 -c, --context N         Number of context lines to include in the diff (default: 3)
 -cc                     Include more context lines (10)
 -ccc                    Include maximum context (entire file)
@@ -87,6 +89,21 @@ The tool allows you to control how much surrounding code context is included whe
 - Custom context (`ai-commit-msg --context 8`): Specify exact number of lines
 
 Including more context can help the AI better understand the purpose and impact of your changes, especially for small modifications to complex code.
+
+### Verbosity Levels
+
+The tool supports multiple verbosity levels to provide more detailed information during operation:
+
+- **Silent (default)**: Only shows essential output and prompts
+- **Level 1** (`-v`): Shows basic operation logs, including file counts and timing
+- **Level 2** (`-vv`): Shows more detailed logs with intermediate steps, file statistics, and branch information
+- **Level 3** (`-vvv`): Shows debug-level information including the full prompts sent to the AI and detailed API responses
+
+Use higher verbosity levels when:
+- Troubleshooting issues with the tool
+- Understanding exactly what data is being sent to the AI
+- Diagnosing problems with API responses 
+- Seeing detailed information about your git repository and changes
 
 ### Examples
 
@@ -108,6 +125,13 @@ ai-commit-msg --context 8
 Generate and automatically commit:
 ```bash
 ai-commit-msg -a
+```
+
+Generate with different levels of verbosity:
+```bash
+ai-commit-msg -v     # Basic verbose output
+ai-commit-msg -vv    # More detailed output with intermediate steps
+ai-commit-msg -vvv   # Debug level output including full prompts
 ```
 
 Store API key in credential manager:
