@@ -11,6 +11,7 @@ A tool that uses Claude AI to automatically generate high-quality git commit mes
 - ✏️ Interactive mode allows you to edit messages before committing
 - 🔄 Can be integrated directly into your git workflow
 - 💻 Cross-platform support for macOS and Windows
+- 📊 Configurable context levels for more accurate commit messages
 
 ## Installation
 
@@ -70,8 +71,22 @@ export ANTHROPIC_API_KEY="your-api-key-here"
 --store-key             Store the provided API key in your system's credential manager
 --auto                  Automatically commit using the generated message without confirmation
 --verbose               Enable verbose output for debugging
+-c, --context N         Number of context lines to include in the diff (default: 3)
+-cc                     Include more context lines (10)
+-ccc                    Include maximum context (entire file)
 --help                  Display help information
 ```
+
+### Context Control
+
+The tool allows you to control how much surrounding code context is included when analyzing changes:
+
+- Default (`ai-commit-msg`): 3 lines of context (git default)
+- Medium context (`ai-commit-msg -cc`): 10 lines of context
+- Maximum context (`ai-commit-msg -ccc`): Includes the entire file content
+- Custom context (`ai-commit-msg --context 8`): Specify exact number of lines
+
+Including more context can help the AI better understand the purpose and impact of your changes, especially for small modifications to complex code.
 
 ### Examples
 
@@ -80,9 +95,19 @@ Generate a commit message with interactive prompt:
 ai-commit-msg
 ```
 
+Generate with more context lines:
+```bash
+ai-commit-msg -cc
+```
+
+Generate with a specific number of context lines:
+```bash
+ai-commit-msg --context 8
+```
+
 Generate and automatically commit:
 ```bash
-ai-commit-msg --auto
+ai-commit-msg -a
 ```
 
 Store API key in credential manager:
@@ -188,7 +213,7 @@ Tests follow Go's standard pattern where test files are named `*_test.go` and pl
 
 1. Stage only related changes together for more focused commit messages
 2. For large changes, consider breaking them into smaller, logical commits
-3. The tool works best when diff sizes are reasonable (under 4000 tokens)
+3. Use the `-cc` or `-ccc` flags when making small but significant changes
 4. Use the edit option to refine messages when needed
 
 ## License

@@ -19,6 +19,9 @@ import (
 const (
 	anthropicAPI = "https://api.anthropic.com/v1/messages"
 	version      = "0.1.0"
+	
+	// Default context lines for git diff
+	defaultContextLines = 3
 )
 
 type Request struct {
@@ -45,13 +48,14 @@ type GitDiff struct {
 	StagedFiles     []string
 	Diff            string
 	Branch          string
-	JiraID          string // New field for Jira ID
-	JiraDescription string // New field for Jira description
+	JiraID          string // Field for Jira ID
+	JiraDescription string // Field for Jira description
 }
 
 var verbose bool
 var executableDir string
 var keyManager *key.KeyManager
+var contextLines int // Number of context lines for git diff
 
 // logVerbose prints a message only if verbose mode is enabled
 func logVerbose(format string, args ...interface{}) {
@@ -75,6 +79,9 @@ func printHelp() {
 	fmt.Println("  -s, --store-key       Store the provided API key in your system credential manager for future use")
 	fmt.Println("  -a, --auto            Automatically commit using the generated message without confirmation")
 	fmt.Println("  -v, --verbose         Enable verbose output for debugging")
+	fmt.Println("  -c, --context N       Number of context lines to include in the diff (default: 3)")
+	fmt.Println("  -cc                   Include more context lines (10)")
+	fmt.Println("  -ccc                  Include maximum context (entire file)")
 	fmt.Println("  -h, --help            Display this help information")
 	fmt.Println("")
 	fmt.Println("SETUP & API KEY:")
@@ -110,8 +117,11 @@ func printHelp() {
 	fmt.Println("  # Generate with a specific Jira issue ID:")
 	fmt.Println("  ai-commit-msg -j GTBUG-123")
 	fmt.Println("")
-	fmt.Println("  # Generate with a Jira issue ID and description:")
-	fmt.Println("  ai-commit-msg -j GTBUG-123 -d \"Fix memory leak in authentication process\"")
+	fmt.Println("  # Generate with additional context lines:")
+	fmt.Println("  ai-commit-msg -cc")
+	fmt.Println("")
+	fmt.Println("  # Generate with a specific number of context lines:")
+	fmt.Println("  ai-commit-msg --context 8")
 	fmt.Println("")
 	fmt.Println("  # Generate and automatically commit:")
 	fmt.Println("  ai-commit-msg -a")
@@ -169,18 +179,24 @@ func parseArgs() (string, string, string, bool, bool, bool, []string) {
 	var storeKey, autoCommit, helpFlag bool
 	var unknownFlags []string
 
+	// Set default context lines
+	contextLines = defaultContextLines
+
 	// Known flags
 	knownSingleFlags := map[string]bool{
 		"-v": true, "--verbose": true,
 		"-a": true, "--auto": true,
 		"-s": true, "--store-key": true,
 		"-h": true, "--help": true,
+		"-cc": true, // Medium context level
+		"-ccc": true, // Maximum context level
 	}
 
 	knownParamFlags := map[string]bool{
 		"-k": true, "--key": true,
 		"-j": true, "--jira": true,
 		"-d": true, "--jira-desc": true,
+		"-c": true, "--context": true,
 	}
 
 	// First, check for help flag (simple case, just check for -h or --help)
@@ -205,6 +221,10 @@ func parseArgs() (string, string, string, bool, bool, bool, []string) {
 				autoCommit = true
 			case "-s", "--store-key":
 				storeKey = true
+			case "-cc":
+				contextLines = 10 // Medium context
+			case "-ccc":
+				contextLines = -1 // Signal for maximum context
 			}
 			continue
 		}
@@ -219,6 +239,10 @@ func parseArgs() (string, string, string, bool, bool, bool, []string) {
 				jiraID = os.Args[i+1]
 			case "-d", "--jira-desc":
 				jiraDesc = os.Args[i+1]
+			case "-c", "--context":
+				// Try to parse context lines as an integer
+				fmt.Sscanf(os.Args[i+1], "%d", &contextLines)
+				// If parsing fails, contextLines will remain at the default value
 			}
 			i++ // Skip the next argument since we've used it
 			continue
@@ -302,6 +326,7 @@ func main() {
 	logVerbose("Starting AI Commit Message Generator v%s", version)
 	logVerbose("Executable directory: %s", executableDir)
 	logVerbose("Platform: %s, Credential store: %s", keyManager.GetPlatform(), keyManager.GetCredentialStoreName())
+	logVerbose("Context lines: %d", contextLines)
 
 	if jiraID != "" {
 		logVerbose("Using provided Jira ID: %s", jiraID)
@@ -396,7 +421,7 @@ func main() {
 	}
 
 	// Get git diff information
-	logVerbose("Getting git diff information...")
+	logVerbose("Getting git diff information with context lines: %d", contextLines)
 	diffInfo, err := getGitDiff(jiraID, jiraDesc)
 	if err != nil {
 		fmt.Printf("Error getting git diff: %v\n", err)
@@ -497,9 +522,55 @@ func getGitDiff(jiraID string, jiraDesc string) (GitDiff, error) {
 	}
 	diffInfo.StagedFiles = strings.Split(strings.TrimSpace(string(output)), "\n")
 
-	// Get the diff details
-	logVerbose("Getting diff details...")
-	cmd = exec.Command("git", "diff", "--cached")
+	// Get the diff details with context
+	logVerbose("Getting diff details with context lines: %d...", contextLines)
+	var args []string
+	args = append(args, "diff", "--cached")
+	
+	// Handle different context levels
+	if contextLines >= 0 {
+		// Use the specified number of context lines
+		args = append(args, fmt.Sprintf("--unified=%d", contextLines))
+	} else {
+		// For maximum context (-1), we need to get full file content for each changed file
+		// We'll have to handle this specially
+		logVerbose("Using maximum context (full file content)...")
+		if len(diffInfo.StagedFiles) > 0 && diffInfo.StagedFiles[0] != "" {
+			var fullDiff strings.Builder
+			
+			// Add a standard diff header
+			fmt.Fprintf(&fullDiff, "# Showing full files for maximum context\n\n")
+			
+			for _, file := range diffInfo.StagedFiles {
+				// Get the full content of each staged file
+				fileCmd := exec.Command("git", "show", fmt.Sprintf(":%s", file))
+				fileOutput, err := fileCmd.Output()
+				if err == nil {
+					fmt.Fprintf(&fullDiff, "=== %s ===\n", file)
+					fullDiff.Write(fileOutput)
+					fmt.Fprintf(&fullDiff, "\n\n")
+				}
+			}
+			
+			// Also include the standard diff for clarity on what actually changed
+			diffCmd := exec.Command("git", "diff", "--cached")
+			diffOutput, err := diffCmd.Output()
+			if err == nil {
+				fmt.Fprintf(&fullDiff, "=== CHANGES ===\n")
+				fullDiff.Write(diffOutput)
+			}
+			
+			diffInfo.Diff = fullDiff.String()
+			logVerbose("Full context diff length: %d bytes", len(diffInfo.Diff))
+			
+			// Get the branch info and return
+			diffInfo = getBranchInfo(diffInfo)
+			return diffInfo, nil
+		}
+	}
+	
+	// Standard diff with specified context
+	cmd = exec.Command("git", args...)
 	output, err = cmd.Output()
 	if err != nil {
 		return diffInfo, err
@@ -507,17 +578,22 @@ func getGitDiff(jiraID string, jiraDesc string) (GitDiff, error) {
 	diffInfo.Diff = string(output)
 	logVerbose("Diff length: %d bytes", len(diffInfo.Diff))
 
+	// Get the branch info and return
+	return getBranchInfo(diffInfo), nil
+}
+
+// getBranchInfo gets the branch information and returns the updated diffInfo
+func getBranchInfo(diffInfo GitDiff) GitDiff {
 	// Get current branch name
 	logVerbose("Getting current branch name...")
-	cmd = exec.Command("git", "rev-parse", "--abbrev-ref", "HEAD")
-	output, err = cmd.Output()
-	if err != nil {
-		return diffInfo, err
+	cmd := exec.Command("git", "rev-parse", "--abbrev-ref", "HEAD")
+	output, err := cmd.Output()
+	if err == nil {
+		diffInfo.Branch = strings.TrimSpace(string(output))
 	}
-	diffInfo.Branch = strings.TrimSpace(string(output))
 
 	// Try to extract Jira ID from branch name if not provided
-	if diffInfo.JiraID == "" {
+	if diffInfo.JiraID == "" && diffInfo.Branch != "" {
 		// Common branch naming patterns like feature/GTBUG-123-description or bugfix/GTN-456-description
 		logVerbose("Trying to extract Jira ID from branch name: %s", diffInfo.Branch)
 
@@ -552,7 +628,7 @@ func getGitDiff(jiraID string, jiraDesc string) (GitDiff, error) {
 		}
 	}
 
-	return diffInfo, nil
+	return diffInfo
 }
 
 func generateCommitMessage(apiKey string, diffInfo GitDiff) (string, error) {
