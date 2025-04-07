@@ -102,6 +102,23 @@ Then use:
 git claude
 ```
 
+## Customizing Prompts
+
+The tool uses Claude AI with carefully crafted prompts to generate commit messages. Developers can customize these prompts to change how the messages are generated:
+
+### Available prompt files:
+
+- `prompts/system_prompt.txt` - Contains instructions for the AI about commit message style and formatting
+- `prompts/user_prompt.txt` - Template used to format the request to the AI with your git diff information
+
+### When to customize:
+
+- To change the commit message style (e.g., different format, more/less detail)
+- To adapt messages for team-specific conventions
+- To add specific requirements for your project
+
+These customizations require rebuilding the tool since the prompts are compiled into the executable.
+
 ## Tips for best results
 
 1. Stage only related changes together for more focused commit messages
