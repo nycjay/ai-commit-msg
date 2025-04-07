@@ -69,10 +69,10 @@ func printHelp() {
 	fmt.Println("")
 	fmt.Println("OPTIONS:")
 	fmt.Println("  -k, --key             Anthropic API key (can also be set with ANTHROPIC_API_KEY environment variable")
-	fmt.Println("                        or stored in the Mac keychain)")
+	fmt.Println("                        or stored in your system credential manager)")
 	fmt.Println("  -j, --jira            Jira issue ID (e.g., GTBUG-123 or GTN-456) to include in the commit message")
 	fmt.Println("  -d, --jira-desc       Jira issue description to provide additional context for the commit message")
-	fmt.Println("  -s, --store-key       Store the provided API key in Mac keychain for future use")
+	fmt.Println("  -s, --store-key       Store the provided API key in your system credential manager for future use")
 	fmt.Println("  -a, --auto            Automatically commit using the generated message without confirmation")
 	fmt.Println("  -v, --verbose         Enable verbose output for debugging")
 	fmt.Println("  -h, --help            Display this help information")
@@ -81,13 +81,19 @@ func printHelp() {
 	fmt.Println("  First-time users:")
 	fmt.Println("    1. Run 'ai-commit-msg' without any options")
 	fmt.Println("    2. When prompted, enter your Anthropic API key (input will be hidden)")
-	fmt.Println("    3. Choose to save it securely in your Mac keychain")
+	fmt.Println("    3. Choose to save it securely in your system credential manager")
 	fmt.Println("")
 	fmt.Println("  Alternative setup methods:")
-	fmt.Println("    - Store directly in keychain: ai-commit-msg --store-key --key YOUR-API-KEY")
-	fmt.Println("    - Environment variable:       export ANTHROPIC_API_KEY=YOUR-API-KEY")
+	fmt.Println("    - Store directly in credential manager: ai-commit-msg --store-key --key YOUR-API-KEY")
+	fmt.Println("    - Environment variable:                 export ANTHROPIC_API_KEY=YOUR-API-KEY")
 	fmt.Println("")
-	fmt.Println("  The API key is stored in the Mac keychain with:")
+
+	// Initialize keyManager if it's nil
+	if keyManager == nil {
+		keyManager = key.NewKeyManager(verbose)
+	}
+
+	fmt.Printf("  The API key is stored in the %s with:\n", keyManager.GetCredentialStoreName())
 	fmt.Println("    - Service name: " + key.KeychainService)
 	fmt.Println("    - Account name: " + key.KeychainAccount)
 	fmt.Println("")
@@ -295,7 +301,7 @@ func main() {
 
 	logVerbose("Starting AI Commit Message Generator v%s", version)
 	logVerbose("Executable directory: %s", executableDir)
-	logVerbose("Keychain configuration: Service='%s', Account='%s'", key.KeychainService, key.KeychainAccount)
+	logVerbose("Platform: %s, Credential store: %s", keyManager.GetPlatform(), keyManager.GetCredentialStoreName())
 
 	if jiraID != "" {
 		logVerbose("Using provided Jira ID: %s", jiraID)
@@ -304,14 +310,20 @@ func main() {
 		}
 	}
 
-	// Handle storing the key in keychain if requested
+	// Handle storing the key in credential store if requested
 	if storeKey && apiKey != "" {
-		logVerbose("Storing API key in keychain...")
-		if err := keyManager.StoreInKeychain(apiKey); err != nil {
-			fmt.Printf("Error storing API key in keychain: %v\n", err)
+		if !keyManager.CredentialStoreAvailable() {
+			fmt.Printf("Error: No credential store available for your platform (%s).\n", keyManager.GetPlatform())
+			fmt.Println("Please use the environment variable instead: export ANTHROPIC_API_KEY=your-api-key")
 			os.Exit(1)
 		}
-		fmt.Println("API key stored successfully in keychain.")
+		
+		logVerbose("Storing API key in %s...", keyManager.GetCredentialStoreName())
+		if err := keyManager.StoreInKeychain(apiKey); err != nil {
+			fmt.Printf("Error storing API key: %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Printf("API key stored successfully in %s.\n", keyManager.GetCredentialStoreName())
 		if !autoCommit {
 			// Exit if we're just storing the key and not committing
 			os.Exit(0)
@@ -358,17 +370,25 @@ func main() {
 				}
 			}
 
-			fmt.Print("Would you like to store this API key securely in your Mac keychain for future use? (y/n): ")
-			var saveResponse string
-			fmt.Scanln(&saveResponse)
-			saveResponse = strings.TrimSpace(strings.ToLower(saveResponse))
+			// Ask if the user wants to store the key
+			if keyManager.CredentialStoreAvailable() {
+				fmt.Printf("Would you like to store this API key securely in your %s for future use? (y/n): ", 
+					keyManager.GetCredentialStoreName())
+				var saveResponse string
+				fmt.Scanln(&saveResponse)
+				saveResponse = strings.TrimSpace(strings.ToLower(saveResponse))
 
-			if saveResponse == "y" || saveResponse == "yes" {
-				if err := keyManager.StoreInKeychain(apiKey); err != nil {
-					fmt.Printf("Error storing API key in keychain: %v\n", err)
-				} else {
-					fmt.Println("API key stored successfully in keychain. You won't need to enter it again.")
+				if saveResponse == "y" || saveResponse == "yes" {
+					if err := keyManager.StoreInKeychain(apiKey); err != nil {
+						fmt.Printf("Error storing API key: %v\n", err)
+					} else {
+						fmt.Printf("API key stored successfully in %s. You won't need to enter it again.\n", 
+							keyManager.GetCredentialStoreName())
+					}
 				}
+			} else {
+				fmt.Println("Note: No secure credential store is available on your platform.")
+				fmt.Println("To avoid entering your API key each time, set the ANTHROPIC_API_KEY environment variable.")
 			}
 		}
 	} else {

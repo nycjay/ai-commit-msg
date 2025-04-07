@@ -7,9 +7,10 @@ A tool that uses Claude AI to automatically generate high-quality git commit mes
 - 🤖 Uses Claude AI to analyze your code changes and generate meaningful commit messages
 - 📝 Follows best practices for commit messages (conventional commits, imperative mood)
 - 🚀 No dependencies - single binary distribution
-- 🔐 Securely stores API key in macOS Keychain
+- 🔐 Securely stores API key in your system's credential manager (macOS Keychain or Windows Credential Manager)
 - ✏️ Interactive mode allows you to edit messages before committing
 - 🔄 Can be integrated directly into your git workflow
+- 💻 Cross-platform support for macOS and Windows
 
 ## Installation
 
@@ -36,9 +37,9 @@ Simply run the tool without any parameters:
 ai-commit-msg
 ```
 
-The tool will prompt you for your API key (input will be hidden) and offer to store it securely in your macOS Keychain.
+The tool will prompt you for your API key (input will be hidden) and offer to store it securely in your system's credential manager.
 
-### 2. Store directly in macOS Keychain
+### 2. Store directly in credential manager
 
 ```bash
 ./ai-commit-msg --store-key --key your-api-key-here
@@ -66,7 +67,7 @@ export ANTHROPIC_API_KEY="your-api-key-here"
 
 ```
 --key "your-api-key"    Specify your Anthropic API key
---store-key             Store the provided API key in Mac keychain
+--store-key             Store the provided API key in your system's credential manager
 --auto                  Automatically commit using the generated message without confirmation
 --verbose               Enable verbose output for debugging
 --help                  Display help information
@@ -84,7 +85,7 @@ Generate and automatically commit:
 ai-commit-msg --auto
 ```
 
-Store API key in keychain:
+Store API key in credential manager:
 ```bash
 ai-commit-msg --store-key --key sk_ant_your_key_here
 ```
@@ -101,6 +102,16 @@ Then use:
 ```bash
 git claude
 ```
+
+## Cross-Platform Support
+
+The tool automatically detects your operating system and uses the appropriate credential manager:
+
+- **macOS**: Uses the macOS Keychain for secure storage
+- **Windows**: Uses the Windows Credential Manager for secure storage
+- **Linux**: No native credential store support, but environment variables still work
+
+On systems without a supported credential manager, the tool will automatically fall back to using environment variables and will provide appropriate guidance.
 
 ## Customizing Prompts
 
@@ -149,21 +160,23 @@ The tests are organized by component:
 
 1. **API Key Management Tests** - Testing the handling of API keys from various sources:
    - Environment variables
-   - macOS Keychain
+   - System credential managers (macOS Keychain, Windows Credential Manager)
    - Command-line arguments
    - Interactive input
 
-2. **Git Integration Tests** - Testing the git diff extraction and commit functionality
+2. **Platform Detection Tests** - Testing the detection of the operating system and available credential stores
 
-3. **Message Generation Tests** - Testing the Claude API integration and message processing
+3. **Git Integration Tests** - Testing the git diff extraction and commit functionality
 
-4. **Argument Parsing Tests** - Testing command-line argument handling
+4. **Message Generation Tests** - Testing the Claude API integration and message processing
+
+5. **Argument Parsing Tests** - Testing command-line argument handling
 
 ### Mock Testing
 
 Some tests use mock implementations to avoid dependencies on external systems:
 
-- Keychain operations are mocked to avoid modifying the actual macOS Keychain
+- Credential store operations are mocked to avoid modifying the actual system keychain
 - Git operations can be mocked to test without a real git repository
 - API calls to Claude are mocked to test without requiring a real API key
 

@@ -3,8 +3,30 @@ package key
 import (
 	"fmt"
 	"os"
+	"runtime"
 	"testing"
 )
+
+// TestKeyManager is a wrapper around KeyManager with fake implementations for testing
+type TestKeyManager struct {
+	*KeyManager
+}
+
+// NewTestKeyManager creates a KeyManager with fake implementations for testing
+func NewTestKeyManager(verbose bool) *KeyManager {
+	km := NewKeyManager(verbose)
+	
+	// Replace the platform functions with fakes
+	km.getFromKeychainFn = func() (string, error) {
+		return "", fmt.Errorf("test keychain not implemented")
+	}
+	
+	km.storeInKeychainFn = func(apiKey string) error {
+		return fmt.Errorf("test keychain not implemented")
+	}
+	
+	return km
+}
 
 // Test retrieving API key from environment variables
 func TestGetFromEnvironment(t *testing.T) {
@@ -33,7 +55,7 @@ func TestGetFromEnvironment(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			os.Setenv(EnvVarName, tc.envValue)
 			
-			km := NewKeyManager(false)
+			km := NewTestKeyManager(false)
 			result := km.GetFromEnvironment()
 			
 			if result != tc.expected {
@@ -74,7 +96,7 @@ func TestValidateKey(t *testing.T) {
 	
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			km := NewKeyManager(false)
+			km := NewTestKeyManager(false)
 			result := km.ValidateKey(tc.apiKey)
 			
 			if result != tc.expected {
@@ -149,9 +171,12 @@ func TestGetKey(t *testing.T) {
 			os.Setenv(EnvVarName, tc.envKey)
 			
 			// Create key manager with mocked keychain function
-			km := NewKeyManager(false)
+			km := NewTestKeyManager(false)
 			
 			// Override the keychain getter with our mock
+			origFn := km.getFromKeychainFn
+			defer func() { km.getFromKeychainFn = origFn }()
+			
 			km.getFromKeychainFn = func() (string, error) {
 				if tc.keychainError != nil {
 					return "", tc.keychainError
@@ -206,12 +231,16 @@ func TestStoreInKeychain(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			// Create key manager with mocked store function
-			km := NewKeyManager(false)
+			km := NewTestKeyManager(false)
 			
 			// Track if the mock was called
 			var mockCalled bool
 			
-			// Override the keychain storer with our mock
+			// Save original function
+			origFn := km.storeInKeychainFn
+			defer func() { km.storeInKeychainFn = origFn }()
+			
+			// Override with mock
 			km.storeInKeychainFn = func(key string) error {
 				mockCalled = true
 				
@@ -239,5 +268,121 @@ func TestStoreInKeychain(t *testing.T) {
 				t.Errorf("Did not expect an error but got: %v", err)
 			}
 		})
+	}
+}
+
+// Test platform detection
+func TestPlatformDetection(t *testing.T) {
+	km := NewTestKeyManager(false)
+	platform := km.GetPlatform()
+	
+	// Verify that the platform matches the runtime.GOOS
+	var expected Platform
+	switch runtime.GOOS {
+	case "darwin":
+		expected = PlatformMac
+	case "windows":
+		expected = PlatformWindows
+	case "linux":
+		expected = PlatformLinux
+	default:
+		expected = PlatformUnknown
+	}
+	
+	if platform != expected {
+		t.Errorf("Expected platform '%s', got '%s'", expected, platform)
+	}
+}
+
+// Test credential store availability
+func TestCredentialStoreAvailable(t *testing.T) {
+	km := NewTestKeyManager(false)
+	available := km.CredentialStoreAvailable()
+	
+	// Verify that credential store availability matches the platform
+	expected := runtime.GOOS == "darwin" || runtime.GOOS == "windows"
+	
+	if available != expected {
+		t.Errorf("Expected credential store availability '%v', got '%v'", expected, available)
+	}
+}
+
+// Test credential store name
+func TestGetCredentialStoreName(t *testing.T) {
+	km := NewTestKeyManager(false)
+	name := km.GetCredentialStoreName()
+	
+	// Verify that the credential store name matches the platform
+	var expected string
+	switch runtime.GOOS {
+	case "darwin":
+		expected = "macOS Keychain"
+	case "windows":
+		expected = "Windows Credential Manager"
+	default:
+		expected = "none"
+	}
+	
+	if name != expected {
+		t.Errorf("Expected credential store name '%s', got '%s'", expected, name)
+	}
+}
+
+// Test platform-specific credential store functions
+func TestPlatformCredentialStore(t *testing.T) {
+	// This is a more limited test that doesn't try to manipulate the methods directly
+	// since that was causing issues. Instead, we just test the high-level functionality.
+	
+	km := NewTestKeyManager(false)
+	
+	// Create a mock for getFromKeychainFn
+	origGetFn := km.getFromKeychainFn
+	defer func() { km.getFromKeychainFn = origGetFn }()
+	
+	var getFromStoreCalled bool
+	km.getFromKeychainFn = func() (string, error) {
+		getFromStoreCalled = true
+		return "test-key", nil
+	}
+	
+	// Call GetFromKeychain which should use our mock
+	result, err := km.GetFromKeychain()
+	
+	// Verify that the function was called and we got the expected result
+	if !getFromStoreCalled {
+		t.Error("getFromKeychainFn was not called")
+	}
+	
+	if err != nil {
+		t.Errorf("Unexpected error: %v", err)
+	}
+	
+	if result != "test-key" {
+		t.Errorf("Expected 'test-key', got '%s'", result)
+	}
+	
+	// Now test storing with a mock
+	origStoreFn := km.storeInKeychainFn
+	defer func() { km.storeInKeychainFn = origStoreFn }()
+	
+	var storeInKeychainCalled bool
+	km.storeInKeychainFn = func(apiKey string) error {
+		storeInKeychainCalled = true
+		if apiKey != "test-key-to-store" {
+			t.Errorf("Expected 'test-key-to-store', got '%s'", apiKey)
+		}
+		return nil
+	}
+	
+	// Call StoreInKeychain
+	err = km.StoreInKeychain("test-key-to-store")
+	
+	// Verify that the function was called and we got the expected result
+	if !storeInKeychainCalled {
+		t.Error("storeInKeychainFn was not called")
+	}
+	
+	if err != nil {
+		t.Errorf("Unexpected error: %v", err)
 	}
 }

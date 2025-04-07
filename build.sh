@@ -33,7 +33,7 @@ if [ -f "ai-commit-msg" ]; then
   echo "Getting Started:"
   echo "  1. Simply run ./ai-commit-msg in any git repository"
   echo "  2. If it's your first time, you'll be prompted for your API key"
-  echo "  3. You can store your API key securely in the Mac keychain"
+  echo "  3. Your API key will be stored securely in your system's credential manager"
   echo ""
   echo "For more options:"
   echo "  ./ai-commit-msg --help"
@@ -43,12 +43,19 @@ else
   exit 1
 fi
 
+# Get OS type for platform-specific instructions
+OS="$(uname)"
+
 # Optionally create a symlink to make it available in PATH
-echo -e "${YELLOW}Would you like to create a symlink in /usr/local/bin? (y/n)${NC}"
-read -r response
-if [[ "$response" =~ ^([yY][eE][sS]|[yY])$ ]]; then
-  sudo ln -sf "$SCRIPT_DIR/ai-commit-msg" /usr/local/bin/ai-commit-msg
-  echo -e "${GREEN}Symlink created! You can now run 'ai-commit-msg' from anywhere.${NC}"
+if [ "$OS" = "Darwin" ] || [ "$OS" = "Linux" ]; then
+  echo -e "${YELLOW}Would you like to create a symlink in /usr/local/bin? (y/n)${NC}"
+  read -r response
+  if [[ "$response" =~ ^([yY][eE][sS]|[yY])$ ]]; then
+    sudo ln -sf "$SCRIPT_DIR/ai-commit-msg" /usr/local/bin/ai-commit-msg
+    echo -e "${GREEN}Symlink created! You can now run 'ai-commit-msg' from anywhere.${NC}"
+  fi
+elif [ "$OS" = "MINGW" ] || [ "$OS" = "MSYS" ] || [ "$OS" = "CYGWIN" ]; then
+  echo "Note: On Windows, you may want to add this directory to your PATH to run ai-commit-msg from anywhere."
 fi
 
 echo -e "${GREEN}Done!${NC}"
