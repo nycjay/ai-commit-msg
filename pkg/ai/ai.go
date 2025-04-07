@@ -1,37 +1,35 @@
 package ai
 
 import (
-	"bytes"
-	"encoding/json"
-	"fmt"
-	"net/http"
-	"os"
+	"github.com/nycjay/ai-commit-msg/pkg/git"
 )
 
-// Config holds the configuration for the AI service
-type Config struct {
-	APIKey  string
-	BaseURL string
-	Model   string
+// GenerateCommitMessage generates a commit message using Claude AI
+func GenerateCommitMessage(apiKey string, diffInfo git.GitDiff) (string, error) {
+	// This is a stub function to be implemented later
+	return "feat: Sample commit message", nil
 }
 
-// Client is the AI client
-type Client struct {
-	config Config
-	client *http.Client
+// Request represents a request to the Claude API
+type Request struct {
+	Model     string    `json:"model"`
+	MaxTokens int       `json:"max_tokens"`
+	System    string    `json:"system"`
+	Messages  []Message `json:"messages"`
 }
 
-// NewClient creates a new AI client
-func NewClient(config Config) *Client {
-	return &Client{
-		config: config,
-		client: &http.Client{},
-	}
+// Message represents a message in the Claude API request
+type Message struct {
+	Role    string `json:"role"`
+	Content string `json:"content"`
 }
 
-// GenerateCommitMessage generates a commit message from the git diff
-func (c *Client) GenerateCommitMessage(diff string) (string, error) {
-	// TODO: Implement API call to the AI service
-	// This is a placeholder implementation
-	return "feat: implement new feature (AI generated)", nil
+// Response represents a response from the Claude API
+type Response struct {
+	Content []Content `json:"content"`
+}
+
+// Content represents content in the Claude API response
+type Content struct {
+	Text string `json:"text"`
 }

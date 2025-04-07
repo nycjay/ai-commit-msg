@@ -12,14 +12,13 @@ import (
 	"strings"
 	"time"
 
+	"github.com/nycjay/ai-commit-msg/pkg/key"
 	"golang.org/x/term"
 )
 
 const (
-	anthropicAPI    = "https://api.anthropic.com/v1/messages"
-	keychainService = "ai-commit-msg"
-	keychainAccount = "anthropic-api-key"
-	version         = "0.1.0"
+	anthropicAPI = "https://api.anthropic.com/v1/messages"
+	version      = "0.1.0"
 )
 
 type Request struct {
@@ -52,6 +51,7 @@ type GitDiff struct {
 
 var verbose bool
 var executableDir string
+var keyManager *key.KeyManager
 
 // logVerbose prints a message only if verbose mode is enabled
 func logVerbose(format string, args ...interface{}) {
@@ -88,8 +88,8 @@ func printHelp() {
 	fmt.Println("    - Environment variable:       export ANTHROPIC_API_KEY=YOUR-API-KEY")
 	fmt.Println("")
 	fmt.Println("  The API key is stored in the Mac keychain with:")
-	fmt.Println("    - Service name: " + keychainService)
-	fmt.Println("    - Account name: " + keychainAccount)
+	fmt.Println("    - Service name: " + key.KeychainService)
+	fmt.Println("    - Account name: " + key.KeychainAccount)
 	fmt.Println("")
 	fmt.Println("JIRA INTEGRATION:")
 	fmt.Println("  The tool will include Jira issue IDs in commit messages:")
@@ -272,6 +272,9 @@ func main() {
 	// Parse command line arguments directly
 	apiKey, jiraID, jiraDesc, storeKey, autoCommit, helpFlag, unknownFlags := parseArgs()
 
+	// Initialize key manager
+	keyManager = key.NewKeyManager(verbose)
+
 	// Handle unknown flags
 	if len(unknownFlags) > 0 {
 		fmt.Println("Error: Unknown flag(s) detected:")
@@ -292,7 +295,7 @@ func main() {
 
 	logVerbose("Starting AI Commit Message Generator v%s", version)
 	logVerbose("Executable directory: %s", executableDir)
-	logVerbose("Keychain configuration: Service='%s', Account='%s'", keychainService, keychainAccount)
+	logVerbose("Keychain configuration: Service='%s', Account='%s'", key.KeychainService, key.KeychainAccount)
 
 	if jiraID != "" {
 		logVerbose("Using provided Jira ID: %s", jiraID)
@@ -304,7 +307,7 @@ func main() {
 	// Handle storing the key in keychain if requested
 	if storeKey && apiKey != "" {
 		logVerbose("Storing API key in keychain...")
-		if err := storeAPIKeyInKeychain(apiKey); err != nil {
+		if err := keyManager.StoreInKeychain(apiKey); err != nil {
 			fmt.Printf("Error storing API key in keychain: %v\n", err)
 			os.Exit(1)
 		}
@@ -318,27 +321,12 @@ func main() {
 	// Get API key from various sources
 	if apiKey == "" {
 		logVerbose("No API key provided via --key flag, checking environment...")
-		// Try environment variable
-		apiKey = os.Getenv("ANTHROPIC_API_KEY")
-
-		// If still empty, try Mac keychain
-		if apiKey == "" {
-			logVerbose("No API key found in environment, checking Mac keychain (service='%s', account='%s')...",
-				keychainService, keychainAccount)
-			var err error
-			apiKey, err = getAPIKeyFromKeychain()
-			if err != nil {
-				logVerbose("Error retrieving API key from keychain: %v", err)
-				// Continue without exiting, as we'll check for empty key below
-			} else if apiKey != "" {
-				logVerbose("API key successfully retrieved from keychain")
-			}
-		} else {
-			logVerbose("API key found in environment variable")
-		}
-
-		// If still empty, prompt the user
-		if apiKey == "" {
+		// Try to get the key using our key manager
+		apiKey, err = keyManager.GetKey("")
+		if err != nil {
+			logVerbose("Error getting API key: %v", err)
+			
+			// If still empty, prompt the user
 			fmt.Println("\nNo API key found. You'll need an Anthropic API key to use this tool.")
 			fmt.Println("You can get one from: https://console.anthropic.com/")
 			fmt.Println("")
@@ -357,13 +345,26 @@ func main() {
 				os.Exit(1)
 			}
 
+			// Basic validation
+			if !keyManager.ValidateKey(apiKey) {
+				fmt.Println("Warning: The provided API key doesn't match the expected format.")
+				fmt.Println("Claude API keys typically start with 'sk_ant_' and are at least 20 characters long.")
+				fmt.Print("Continue anyway? (y/n): ")
+				var continueResponse string
+				fmt.Scanln(&continueResponse)
+				if strings.ToLower(continueResponse) != "y" && strings.ToLower(continueResponse) != "yes" {
+					fmt.Println("Exiting.")
+					os.Exit(1)
+				}
+			}
+
 			fmt.Print("Would you like to store this API key securely in your Mac keychain for future use? (y/n): ")
 			var saveResponse string
 			fmt.Scanln(&saveResponse)
 			saveResponse = strings.TrimSpace(strings.ToLower(saveResponse))
 
 			if saveResponse == "y" || saveResponse == "yes" {
-				if err := storeAPIKeyInKeychain(apiKey); err != nil {
+				if err := keyManager.StoreInKeychain(apiKey); err != nil {
 					fmt.Printf("Error storing API key in keychain: %v\n", err)
 				} else {
 					fmt.Println("API key stored successfully in keychain. You won't need to enter it again.")
@@ -455,35 +456,6 @@ func main() {
 	}
 }
 
-// getAPIKeyFromKeychain retrieves the API key from Mac keychain
-func getAPIKeyFromKeychain() (string, error) {
-	logVerbose("Executing keychain command to retrieve API key...")
-	cmd := exec.Command("security", "find-generic-password", "-s", keychainService, "-a", keychainAccount, "-w")
-	output, err := cmd.Output()
-	if err != nil {
-		// Don't return the error details as they might contain sensitive info or be verbose
-		return "", fmt.Errorf("failed to retrieve API key from keychain")
-	}
-	return strings.TrimSpace(string(output)), nil
-}
-
-// storeAPIKeyInKeychain stores the API key in Mac keychain
-func storeAPIKeyInKeychain(apiKey string) error {
-	// First, try to delete any existing entry
-	logVerbose("Deleting any existing keychain entry...")
-	deleteCmd := exec.Command("security", "delete-generic-password", "-s", keychainService, "-a", keychainAccount)
-	// Ignore errors from delete as the entry might not exist
-	_ = deleteCmd.Run()
-
-	// Add the new password
-	logVerbose("Adding new keychain entry (service='%s', account='%s')...", keychainService, keychainAccount)
-	addCmd := exec.Command("security", "add-generic-password", "-s", keychainService, "-a", keychainAccount, "-w", apiKey)
-	if err := addCmd.Run(); err != nil {
-		return fmt.Errorf("failed to store API key in keychain")
-	}
-	return nil
-}
-
 func getGitDiff(jiraID string, jiraDesc string) (GitDiff, error) {
 	var diffInfo GitDiff
 	diffInfo.JiraID = jiraID
@@ -566,9 +538,15 @@ func getGitDiff(jiraID string, jiraDesc string) (GitDiff, error) {
 func generateCommitMessage(apiKey string, diffInfo GitDiff) (string, error) {
 	// Read system prompt from file
 	systemPrompt, err := readPromptFile("system_prompt.txt")
+	if err != nil {
+		return "", fmt.Errorf("error reading system prompt: %v", err)
+	}
 
 	// Read user prompt template from file
 	userPromptTemplate, err := readPromptFile("user_prompt.txt")
+	if err != nil {
+		return "", fmt.Errorf("error reading user prompt template: %v", err)
+	}
 
 	// Format the user prompt with the diff information
 	userPrompt := fmt.Sprintf(

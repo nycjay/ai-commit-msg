@@ -119,6 +119,58 @@ The tool uses Claude AI with carefully crafted prompts to generate commit messag
 
 These customizations require rebuilding the tool since the prompts are compiled into the executable.
 
+## Development and Testing
+
+### Running Tests
+
+The project includes unit tests to ensure all functionality works correctly. To run the tests:
+
+```bash
+# Run all tests
+go test ./...
+
+# Run tests with verbose output
+go test -v ./...
+
+# Run tests for a specific package
+go test ./pkg/key
+
+# Run tests with code coverage
+go test -cover ./...
+
+# Generate code coverage report
+go test -coverprofile=coverage.out ./...
+go tool cover -html=coverage.out
+```
+
+### Testing Components
+
+The tests are organized by component:
+
+1. **API Key Management Tests** - Testing the handling of API keys from various sources:
+   - Environment variables
+   - macOS Keychain
+   - Command-line arguments
+   - Interactive input
+
+2. **Git Integration Tests** - Testing the git diff extraction and commit functionality
+
+3. **Message Generation Tests** - Testing the Claude API integration and message processing
+
+4. **Argument Parsing Tests** - Testing command-line argument handling
+
+### Mock Testing
+
+Some tests use mock implementations to avoid dependencies on external systems:
+
+- Keychain operations are mocked to avoid modifying the actual macOS Keychain
+- Git operations can be mocked to test without a real git repository
+- API calls to Claude are mocked to test without requiring a real API key
+
+### Test Organization
+
+Tests follow Go's standard pattern where test files are named `*_test.go` and placed alongside the code they test.
+
 ## Tips for best results
 
 1. Stage only related changes together for more focused commit messages
