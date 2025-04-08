@@ -116,20 +116,21 @@ The tool uses a flexible configuration system with the following precedence (hig
 3. Configuration file
 4. Default values
 
-Configuration is stored in the following locations:
+Configuration is stored in the following locations, with paths prioritized based on platform conventions:
 
+- **All Platforms**:
+  1. `$XDG_CONFIG_HOME/ai-commit-msg/config.toml` (if XDG_CONFIG_HOME is set)
 - **macOS**:
-  - `~/.config/ai-commit-msg/config.toml`
-  - `~/Library/Application Support/ai-commit-msg/config.toml`
+  1. `~/.config/ai-commit-msg/config.toml`
+  2. `~/Library/Application Support/ai-commit-msg/config.toml`
 - **Windows**:
-  - `~/.config/ai-commit-msg/config.toml`
-  - `%USERPROFILE%\.config\ai-commit-msg\config.toml`
-  - `%APPDATA%\ai-commit-msg\config.toml`
-- **Linux/XDG-compatible**:
-  - `$XDG_CONFIG_HOME/ai-commit-msg/config.toml` (if XDG_CONFIG_HOME is set)
-  - `~/.config/ai-commit-msg/config.toml` (fallback)
+  1. `%APPDATA%\ai-commit-msg\config.toml`
+  2. `~/.config/ai-commit-msg/config.toml`
+  3. `%USERPROFILE%\.config\ai-commit-msg\config.toml`
+- **Fallback**:
+  1. `~/.config/ai-commit-msg/config.toml`
 
-The path is determined dynamically based on your operating system and user's home directory, with cross-platform compatibility in mind.
+The configuration path is dynamically selected for macOS, Windows, Linux, and other Unix-like systems, with `XDG_CONFIG_HOME` taking precedence across all platforms when set, ensuring broad compatibility and flexible configuration.
 
 You can persist command-line options to the configuration file using the `--remember` flag:
 

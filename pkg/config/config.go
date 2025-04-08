@@ -196,14 +196,22 @@ func (c *Config) getConfigDirectory() (string, error) {
 
 // GetConfigDirectory returns the directory where the config file should be located
 func (c *Config) GetConfigDirectory() (string, error) {
-	// Detect operating system
+	// Check XDG_CONFIG_HOME first, applicable to all platforms
+	xdgConfigHome := os.Getenv("XDG_CONFIG_HOME")
+	if xdgConfigHome != "" {
+		return filepath.Join(xdgConfigHome, ConfigDirName), nil
+	}
+
+	// Detect operating system for platform-specific fallbacks
 	switch runtime.GOOS {
 	case "windows":
 		return c.getWindowsConfigDirectory()
-	case "darwin", "linux":
-		return c.getUnixConfigDirectory()
+	case "darwin":
+		return c.getMacOSConfigDirectory()
+	case "linux":
+		return c.getLinuxConfigDirectory()
 	default:
-		return c.getUnixConfigDirectory()
+		return c.getLinuxConfigDirectory()
 	}
 }
 
@@ -239,15 +247,32 @@ func (c *Config) getWindowsConfigDirectory() (string, error) {
 	return filepath.Join(home, ".config", ConfigDirName), nil
 }
 
-// getUnixConfigDirectory returns the config directory for Unix-like systems
-func (c *Config) getUnixConfigDirectory() (string, error) {
-	// Check XDG_CONFIG_HOME first
-	xdgConfigHome := os.Getenv("XDG_CONFIG_HOME")
-	if xdgConfigHome != "" {
-		return filepath.Join(xdgConfigHome, ConfigDirName), nil
+// getMacOSConfigDirectory returns the config directory for macOS
+func (c *Config) getMacOSConfigDirectory() (string, error) {
+	home, err := homedir.Dir()
+	if err != nil {
+		return "", err
 	}
 
-	// Fall back to ~/.config
+	// Try macOS-specific paths
+	paths := []string{
+		filepath.Join(home, ".config", ConfigDirName),
+		filepath.Join(home, "Library", "Application Support", ConfigDirName),
+	}
+
+	for _, path := range paths {
+		// Check if the directory exists or can be created
+		if err := os.MkdirAll(path, 0755); err == nil {
+			return path, nil
+		}
+	}
+
+	// If all else fails, use .config
+	return filepath.Join(home, ".config", ConfigDirName), nil
+}
+
+// getLinuxConfigDirectory returns the config directory for Linux
+func (c *Config) getLinuxConfigDirectory() (string, error) {
 	home, err := homedir.Dir()
 	if err != nil {
 		return "", err
