@@ -44,10 +44,12 @@ const (
 // Config holds all the configuration for the application
 type Config struct {
 	// Configuration values stored in Viper
-	Verbosity     VerbosityLevel `mapstructure:"verbosity"`
-	ContextLines  int            `mapstructure:"context_lines"`
-	RememberFlags bool           `mapstructure:"remember_flags"`
-	ModelName     string         `mapstructure:"model_name"`
+	Verbosity         VerbosityLevel `mapstructure:"verbosity"`
+	ContextLines      int            `mapstructure:"context_lines"`
+	RememberFlags     bool           `mapstructure:"remember_flags"`
+	ModelName         string         `mapstructure:"model_name"`
+	SystemPromptPath  string         `mapstructure:"system_prompt_path"`
+	UserPromptPath    string         `mapstructure:"user_prompt_path"`
 
 	// Runtime-only values (not saved to config)
 	APIKey        string `mapstructure:"-"` // Sensitive, stored in keychain
@@ -154,6 +156,8 @@ func (c *Config) SaveConfig() error {
 	c.v.Set("context_lines", c.ContextLines)
 	c.v.Set("remember_flags", c.RememberFlags)
 	c.v.Set("model_name", c.ModelName)
+	c.v.Set("system_prompt_path", c.SystemPromptPath)
+	c.v.Set("user_prompt_path", c.UserPromptPath)
 	
 	// Note: We no longer persist JiraPrefix as it will be hardcoded in the application
 	
@@ -185,6 +189,8 @@ func (c *Config) setDefaults() {
 	c.v.SetDefault("context_lines", 3)
 	c.v.SetDefault("remember_flags", false)
 	c.v.SetDefault("model_name", "claude-3-haiku-20240307")
+	c.v.SetDefault("system_prompt_path", "")
+	c.v.SetDefault("user_prompt_path", "")
 	
 	// Note: JiraPrefix is no longer configurable, it's hardcoded in pkg/git/jira.go
 }
@@ -192,6 +198,15 @@ func (c *Config) setDefaults() {
 // getConfigDirectory returns the directory where the config file should be located
 func (c *Config) getConfigDirectory() (string, error) {
 	return c.GetConfigDirectory()
+}
+
+// GetPromptDirectory returns the directory where custom prompt files should be located
+func (c *Config) GetPromptDirectory() (string, error) {
+	configDir, err := c.GetConfigDirectory()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(configDir, "prompts"), nil
 }
 
 // GetConfigDirectory returns the directory where the config file should be located
@@ -339,6 +354,34 @@ func (c *Config) SetModelName(model string) {
 	c.ModelName = model
 }
 
+// GetSystemPromptPath returns the custom system prompt path
+func (c *Config) GetSystemPromptPath() string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.SystemPromptPath
+}
+
+// SetSystemPromptPath sets the custom system prompt path
+func (c *Config) SetSystemPromptPath(path string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.SystemPromptPath = path
+}
+
+// GetUserPromptPath returns the custom user prompt path
+func (c *Config) GetUserPromptPath() string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.UserPromptPath
+}
+
+// SetUserPromptPath sets the custom user prompt path
+func (c *Config) SetUserPromptPath(path string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.UserPromptPath = path
+}
+
 // StoreAPIKey stores the API key in the keychain
 func (c *Config) StoreAPIKey(key string) error {
 	return c.keyManager.StoreInKeychain(key)
@@ -374,6 +417,8 @@ func (c *Config) ParseCommandLineArgs(args []string) ([]string, error) {
 		"-d": true, "--jira-desc": true,
 		"-c": true, "--context": true,
 		"-m": true, "--model": true,
+		"--system-prompt": true,
+		"--user-prompt": true,
 	}
 
 	// Collect any unknown flags
@@ -422,6 +467,10 @@ func (c *Config) ParseCommandLineArgs(args []string) ([]string, error) {
 				fmt.Sscanf(args[i+1], "%d", &c.ContextLines)
 			case "-m", "--model":
 				c.ModelName = args[i+1]
+			case "--system-prompt":
+				c.SystemPromptPath = args[i+1]
+			case "--user-prompt":
+				c.UserPromptPath = args[i+1]
 			}
 			i++ // Skip the next argument since we've used it
 			continue

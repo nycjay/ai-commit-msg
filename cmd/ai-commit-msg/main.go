@@ -73,6 +73,7 @@ func printHelp() {
 	fmt.Println("")
 	fmt.Println("USAGE:")
 	fmt.Println("  ai-commit-msg [OPTIONS]")
+	fmt.Println("  ai-commit-msg init-prompts")
 	fmt.Println("")
 	fmt.Println("OPTIONS:")
 	fmt.Println("  -k, --key             Anthropic API key (can also be set with ANTHROPIC_API_KEY environment variable")
@@ -88,8 +89,13 @@ func printHelp() {
 	fmt.Println("  -cc                   Include more context lines (10)")
 	fmt.Println("  -ccc                  Include maximum context (entire file)")
 	fmt.Println("  -m, --model MODEL     Specify Claude model to use (default: claude-3-haiku-20240307)")
+	fmt.Println("  --system-prompt PATH  Specify a custom system prompt file path")
+	fmt.Println("  --user-prompt PATH    Specify a custom user prompt file path")
 	fmt.Println("  --remember            Remember command-line options in config for future use")
 	fmt.Println("  -h, --help            Display this help information")
+	fmt.Println("")
+	fmt.Println("SUBCOMMANDS:")
+	fmt.Println("  init-prompts           Initialize custom prompt files in your config directory")
 	fmt.Println("")
 	fmt.Println("CONFIGURATION:")
 	fmt.Println("  The tool stores configuration in:")
@@ -106,6 +112,19 @@ func printHelp() {
 	fmt.Println("  - AI_COMMIT_VERBOSITY=2     # Set verbosity level")
 	fmt.Println("  - AI_COMMIT_CONTEXT_LINES=5 # Set context lines")
 	fmt.Println("  - AI_COMMIT_MODEL_NAME=...  # Set Claude model")
+	fmt.Println("  - AI_COMMIT_SYSTEM_PROMPT_PATH=... # Custom system prompt file path")
+	fmt.Println("  - AI_COMMIT_USER_PROMPT_PATH=...   # Custom user prompt file path")
+	fmt.Println("")
+	fmt.Println("CUSTOM PROMPTS:")
+	promptDir, err := cfg.GetPromptDirectory()
+	if err == nil {
+		fmt.Printf("  Custom prompt files can be placed in: %s/\n", promptDir)
+	} else {
+		fmt.Println("  Custom prompt files can be placed in: ~/.config/ai-commit-msg/prompts/")
+	}
+	fmt.Println("  System prompt file: system_prompt.txt")
+	fmt.Println("  User prompt file: user_prompt.txt")
+	fmt.Println("  You can also specify custom prompt file paths in the config file or command line")
 	fmt.Println("")
 	
 	fmt.Println("SETUP & API KEY:")
@@ -157,6 +176,12 @@ func printHelp() {
 	fmt.Println("  # Use a different Claude model:")
 	fmt.Println("  ai-commit-msg --model claude-3-opus-20240229")
 	fmt.Println("")
+	fmt.Println("  # Initialize custom prompt files in your config directory:")
+	fmt.Println("  ai-commit-msg init-prompts")
+	fmt.Println("")
+	fmt.Println("  # Use custom prompt files:")
+	fmt.Println("  ai-commit-msg --system-prompt /path/to/system_prompt.txt --user-prompt /path/to/user_prompt.txt")
+	fmt.Println("")
 }
 
 // readPasswordFromTerminal reads a password from the terminal without echoing it
@@ -186,29 +211,70 @@ func findExecutableDir() (string, error) {
 	return cwd, nil
 }
 
-// readPromptFile reads a prompt file from the prompts directory
+// readPromptFile reads a prompt file from the appropriate location
 func readPromptFile(filename string) (string, error) {
-	// First check if the file exists relative to the executable directory
+	var customPath string
+
+	// Check if we have a custom prompt path for this file
+	if filename == "system_prompt.txt" && cfg.GetSystemPromptPath() != "" {
+		customPath = cfg.GetSystemPromptPath()
+		logVerbose("Using custom system prompt path: %s", customPath)
+	} else if filename == "user_prompt.txt" && cfg.GetUserPromptPath() != "" {
+		customPath = cfg.GetUserPromptPath()
+		logVerbose("Using custom user prompt path: %s", customPath)
+	}
+
+	// If we have a custom path, try to read it
+	if customPath != "" {
+		logVerbose("Reading prompt file from custom path: %s", customPath)
+		content, err := os.ReadFile(customPath)
+		if err == nil {
+			return string(content), nil
+		}
+		logVerbose("Failed to read custom prompt file: %v, falling back to default", err)
+	}
+
+	// Try reading from the user's config directory
+	promptDir, err := cfg.GetPromptDirectory()
+	if err == nil {
+		promptPath := filepath.Join(promptDir, filename)
+		logVerbose("Checking for prompt file in config directory: %s", promptPath)
+		
+		if _, err := os.Stat(promptPath); err == nil {
+			logVerbose("Reading prompt file from config directory: %s", promptPath)
+			content, err := os.ReadFile(promptPath)
+			if err == nil {
+				return string(content), nil
+			}
+			logVerbose("Failed to read prompt file from config directory: %v, falling back to default", err)
+		}
+	}
+
+	// Fall back to the executable directory
 	promptsDir := filepath.Join(executableDir, "prompts")
 	promptPath := filepath.Join(promptsDir, filename)
 
-	logVerbose("Reading prompt file from: %s", promptPath)
+	logVerbose("Reading prompt file from executable directory: %s", promptPath)
 	content, err := os.ReadFile(promptPath)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("failed to read prompt file from any location: %v", err)
 	}
 
 	return string(content), nil
 }
 
-func parseArgs() (bool, []string) {
+func parseArgs() (bool, bool, []string) {
 	// Variables to store the extracted values
 	var unknownFlags []string
+	var isInitPrompts bool
 
 	// First, check for help flag (simple case, just check for -h or --help)
+	// Also check for init-prompts subcommand
 	for _, arg := range os.Args[1:] {
 		if arg == "-h" || arg == "--help" {
-			return true, unknownFlags
+			return true, false, unknownFlags
+		} else if arg == "init-prompts" {
+			isInitPrompts = true
 		}
 	}
 
@@ -218,7 +284,54 @@ func parseArgs() (bool, []string) {
 		fmt.Printf("Error parsing command line arguments: %v\n", err)
 	}
 
-	return false, unknownFlags
+	return false, isInitPrompts, unknownFlags
+}
+
+// ensurePromptDirectoryExists makes sure the prompt directory exists
+func ensurePromptDirectoryExists() error {
+	promptDir, err := cfg.GetPromptDirectory()
+	if err != nil {
+		return err
+	}
+
+	// Create the directory if it doesn't exist
+	if err := os.MkdirAll(promptDir, 0755); err != nil {
+		return fmt.Errorf("failed to create prompt directory: %v", err)
+	}
+
+	return nil
+}
+
+// copyPromptFile copies a prompt file from the executable directory to the user's prompt directory
+// if it doesn't already exist in the user's prompt directory
+func copyPromptFile(filename string) error {
+	// Check if the prompt directory exists
+	promptDir, err := cfg.GetPromptDirectory()
+	if err != nil {
+		return err
+	}
+
+	// Check if the file already exists in the user's prompt directory
+	destPath := filepath.Join(promptDir, filename)
+	if _, err := os.Stat(destPath); err == nil {
+		// File already exists, no need to copy
+		return nil
+	}
+
+	// Read the file from the executable directory
+	srcPath := filepath.Join(executableDir, "prompts", filename)
+	content, err := os.ReadFile(srcPath)
+	if err != nil {
+		return fmt.Errorf("failed to read source prompt file: %v", err)
+	}
+
+	// Write the file to the user's prompt directory
+	if err := os.WriteFile(destPath, content, 0644); err != nil {
+		return fmt.Errorf("failed to write destination prompt file: %v", err)
+	}
+
+	logVerbose("Copied %s to %s", srcPath, destPath)
+	return nil
 }
 
 func main() {
@@ -237,7 +350,7 @@ func main() {
 	}
 
 	// Parse command line arguments
-	isHelp, unknownFlags := parseArgs()
+	isHelp, isInitPrompts, unknownFlags := parseArgs()
 
 	// Handle unknown flags
 	if len(unknownFlags) > 0 {
@@ -256,12 +369,49 @@ func main() {
 		printHelp()
 		os.Exit(0)
 	}
+	
+	// Handle init-prompts subcommand
+	if isInitPrompts {
+		fmt.Println("Initializing prompt files in user config directory...")
+		
+		// Ensure prompt directory exists
+		if err := ensurePromptDirectoryExists(); err != nil {
+			fmt.Printf("Error: Failed to create prompt directory: %v\n", err)
+			os.Exit(1)
+		}
+		
+		// Copy prompt files
+		promptDir, _ := cfg.GetPromptDirectory()
+		fmt.Printf("Prompt directory: %s\n", promptDir)
+		
+		// Copy system prompt
+		if err := copyPromptFile("system_prompt.txt"); err != nil {
+			fmt.Printf("Error copying system prompt: %v\n", err)
+		} else {
+			fmt.Println("Successfully copied system_prompt.txt")
+		}
+		
+		// Copy user prompt
+		if err := copyPromptFile("user_prompt.txt"); err != nil {
+			fmt.Printf("Error copying user prompt: %v\n", err)
+		} else {
+			fmt.Println("Successfully copied user_prompt.txt")
+		}
+		
+		fmt.Println("Initialization complete. You can now edit these files to customize your prompts.")
+		os.Exit(0)
+	}
 
 	// Save config if remember flag is enabled
 	if cfg.IsRememberFlagsEnabled() {
 		if err := cfg.SaveConfig(); err != nil {
 			fmt.Printf("Warning: Error saving config: %v\n", err)
 		}
+	}
+	
+	// Ensure the prompt directory exists
+	if err := ensurePromptDirectoryExists(); err != nil {
+		logVerbose("Warning: Failed to ensure prompt directory exists: %v", err)
 	}
 
 	log(config.Normal, "Starting AI Commit Message Generator v%s", version)

@@ -77,8 +77,13 @@ export ANTHROPIC_API_KEY="your-api-key-here"
 -cc                     Include more context lines (10)
 -ccc                    Include maximum context (entire file)
 -m, --model MODEL       Specify Claude model to use (default: claude-3-haiku-20240307)
+--system-prompt PATH    Specify a custom system prompt file path
+--user-prompt PATH      Specify a custom user prompt file path
 --remember              Remember command-line options in config for future use
 --help                  Display help information
+
+Subcommands:
+init-prompts           Initialize custom prompt files in your config directory
 ```
 
 ### Context Control
@@ -150,6 +155,8 @@ Environment variables use the prefix `AI_COMMIT_`:
 export AI_COMMIT_VERBOSITY=2       # Set verbosity level
 export AI_COMMIT_CONTEXT_LINES=5   # Set context lines
 export AI_COMMIT_MODEL_NAME=claude-3-opus-20240229  # Set Claude model
+export AI_COMMIT_SYSTEM_PROMPT_PATH="/path/to/system_prompt.txt"  # Custom system prompt
+export AI_COMMIT_USER_PROMPT_PATH="/path/to/user_prompt.txt"      # Custom user prompt
 ```
 
 The configuration system is designed to be:
@@ -196,6 +203,16 @@ ai-commit-msg --store-key --key sk_ant_your_key_here
 Use a different Claude model:
 ```bash
 ai-commit-msg --model claude-3-opus-20240229
+```
+
+Initialize custom prompt files:
+```bash
+ai-commit-msg init-prompts
+```
+
+Use custom prompt files:
+```bash
+ai-commit-msg --system-prompt /path/to/system_prompt.txt --user-prompt /path/to/user_prompt.txt
 ```
 
 Remember settings for future use:
@@ -273,20 +290,53 @@ After adding your custom prefixes, the tool will recognize these in branch names
 
 ### Customizing Prompts
 
-The tool uses Claude AI with carefully crafted prompts to generate commit messages. Developers can customize these prompts to change how the messages are generated:
+The tool uses Claude AI with carefully crafted prompts to generate commit messages. You can customize these prompts to change how the messages are generated:
 
 #### Available prompt files:
 
-- `prompts/system_prompt.txt` - Contains instructions for the AI about commit message style and formatting
-- `prompts/user_prompt.txt` - Template used to format the request to the AI with your git diff information
+- `system_prompt.txt` - Contains instructions for the AI about commit message style and formatting
+- `user_prompt.txt` - Template used to format the request to the AI with your git diff information
+
+#### Customizing without rebuilding:
+
+You can customize the prompts without rebuilding the tool using one of these methods:
+
+1. **Initialize custom prompt files in your config directory**:
+   ```bash
+   ai-commit-msg init-prompts
+   ```
+   This will copy the default prompt files to your config directory (`~/.config/ai-commit-msg/prompts/` or equivalent). You can then edit these files to customize them.
+
+2. **Specify custom prompt file paths**:
+   ```bash
+   ai-commit-msg --system-prompt /path/to/system_prompt.txt --user-prompt /path/to/user_prompt.txt
+   ```
+   This allows you to use prompt files from any location.
+
+3. **Set custom prompt paths in the config file**:
+   ```toml
+   system_prompt_path = "/path/to/system_prompt.txt"
+   user_prompt_path = "/path/to/user_prompt.txt"
+   ```
+
+4. **Use environment variables**:
+   ```bash
+   export AI_COMMIT_SYSTEM_PROMPT_PATH="/path/to/system_prompt.txt"
+   export AI_COMMIT_USER_PROMPT_PATH="/path/to/user_prompt.txt"
+   ```
+
+The tool follows this order of precedence when looking for prompt files:
+1. Custom paths specified via command line flags
+2. Custom paths specified in the config file or environment variables
+3. Default files in the user's config directory (`~/.config/ai-commit-msg/prompts/`)
+4. Default files in the tool's installation directory
 
 #### When to customize:
 
 - To change the commit message style (e.g., different format, more/less detail)
 - To adapt messages for team-specific conventions
 - To add specific requirements for your project
-
-These customizations require rebuilding the tool since the prompts are compiled into the executable.
+- To optimize the prompts for your specific workflow
 
 ## Development and Testing
 

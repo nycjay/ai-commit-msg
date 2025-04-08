@@ -13,3 +13,8 @@ model_name = "claude-3-haiku-20240307"
 
 # Whether to remember command-line options for future use
 remember_flags = true
+
+# Custom prompt file paths (optional)
+# If not specified, the tool will look for prompt files in the default locations
+# system_prompt_path = "/path/to/system_prompt.txt"
+# user_prompt_path = "/path/to/user_prompt.txt"
