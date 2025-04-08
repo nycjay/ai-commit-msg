@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/nycjay/ai-commit-msg/pkg/config"
 	"github.com/nycjay/ai-commit-msg/pkg/key"
 	"golang.org/x/term"
 )
@@ -19,9 +20,6 @@ import (
 const (
 	anthropicAPI = "https://api.anthropic.com/v1/messages"
 	version      = "0.1.0"
-	
-	// Default context lines for git diff
-	defaultContextLines = 3
 )
 
 type Request struct {
@@ -52,30 +50,13 @@ type GitDiff struct {
 	JiraDescription string // Field for Jira description
 }
 
-// VerbosityLevel represents the level of verbosity for logging
-type VerbosityLevel int
-
-const (
-	// Silent means no logs will be printed
-	Silent VerbosityLevel = iota
-	// Normal shows basic operation logs
-	Normal
-	// Verbose shows detailed operation logs
-	Verbose
-	// MoreVerbose shows even more detailed logs including intermediate steps
-	MoreVerbose
-	// Debug shows all possible logs including debug information
-	Debug
-)
-
-var verbosityLevel VerbosityLevel = Silent
+// Global variables
 var executableDir string
-var keyManager *key.KeyManager
-var contextLines int // Number of context lines for git diff
+var cfg *config.Config
 
 // log prints a message only if the current verbosity level is >= the required level
-func log(level VerbosityLevel, format string, args ...interface{}) {
-	if verbosityLevel >= level {
+func log(level config.VerbosityLevel, format string, args ...interface{}) {
+	if cfg.GetVerbosity() >= level {
 		fmt.Printf(format+"\n", args...)
 	}
 }
@@ -83,7 +64,7 @@ func log(level VerbosityLevel, format string, args ...interface{}) {
 // Legacy logVerbose function for backward compatibility
 // logs at Verbose level (2)
 func logVerbose(format string, args ...interface{}) {
-	log(Verbose, format, args...)
+	log(config.Verbose, format, args...)
 }
 
 func printHelp() {
@@ -106,8 +87,27 @@ func printHelp() {
 	fmt.Println("  -c, --context N       Number of context lines to include in the diff (default: 3)")
 	fmt.Println("  -cc                   Include more context lines (10)")
 	fmt.Println("  -ccc                  Include maximum context (entire file)")
+	fmt.Println("  -m, --model MODEL     Specify Claude model to use (default: claude-3-haiku-20240307)")
+	fmt.Println("  --remember            Remember command-line options in config for future use")
 	fmt.Println("  -h, --help            Display this help information")
 	fmt.Println("")
+	fmt.Println("CONFIGURATION:")
+	fmt.Println("  The tool stores configuration in:")
+	
+	// Get the actual config directory
+	configDir, err := cfg.GetConfigDirectory()
+	if err != nil {
+		// If we can't get the exact path, show a generic example
+		fmt.Println("  ~/.config/ai-commit-msg/config.toml (or $XDG_CONFIG_HOME/ai-commit-msg/config.toml)")
+	} else {
+		fmt.Printf("  %s/config.toml\n", configDir)
+	}
+	fmt.Println("  You can also use environment variables with the AI_COMMIT_ prefix:")
+	fmt.Println("  - AI_COMMIT_VERBOSITY=2     # Set verbosity level")
+	fmt.Println("  - AI_COMMIT_CONTEXT_LINES=5 # Set context lines")
+	fmt.Println("  - AI_COMMIT_MODEL_NAME=...  # Set Claude model")
+	fmt.Println("")
+	
 	fmt.Println("SETUP & API KEY:")
 	fmt.Println("  First-time users:")
 	fmt.Println("    1. Run 'ai-commit-msg' without any options")
@@ -119,11 +119,7 @@ func printHelp() {
 	fmt.Println("    - Environment variable:                 export ANTHROPIC_API_KEY=YOUR-API-KEY")
 	fmt.Println("")
 
-	// Initialize keyManager if it's nil
-	if keyManager == nil {
-		keyManager = key.NewKeyManager(verbosityLevel >= Verbose)
-	}
-
+	keyManager := cfg.GetKeyManager()
 	fmt.Printf("  The API key is stored in the %s with:\n", keyManager.GetCredentialStoreName())
 	fmt.Println("    - Service name: " + key.KeychainService)
 	fmt.Println("    - Account name: " + key.KeychainAccount)
@@ -154,6 +150,12 @@ func printHelp() {
 	fmt.Println("  ai-commit-msg -v     # Basic verbose output")
 	fmt.Println("  ai-commit-msg -vv    # More detailed output")
 	fmt.Println("  ai-commit-msg -vvv   # Debug level output")
+	fmt.Println("")
+	fmt.Println("  # Remember settings for future use:")
+	fmt.Println("  ai-commit-msg -cc --remember")
+	fmt.Println("")
+	fmt.Println("  # Use a different Claude model:")
+	fmt.Println("  ai-commit-msg --model claude-3-opus-20240229")
 	fmt.Println("")
 }
 
@@ -199,130 +201,24 @@ func readPromptFile(filename string) (string, error) {
 	return string(content), nil
 }
 
-func parseArgs() (string, string, string, bool, bool, bool, []string) {
+func parseArgs() (bool, []string) {
 	// Variables to store the extracted values
-	var apiKey, jiraID, jiraDesc string
-	var storeKey, autoCommit, helpFlag bool
 	var unknownFlags []string
-
-	// Set default context lines
-	contextLines = defaultContextLines
-
-	// Known flags
-	knownSingleFlags := map[string]bool{
-		"-v": true, "--verbose": true,
-		"-vv": true,
-		"-vvv": true,
-		"-a": true, "--auto": true,
-		"-s": true, "--store-key": true,
-		"-h": true, "--help": true,
-		"-cc": true, // Medium context level
-		"-ccc": true, // Maximum context level
-	}
-
-	knownParamFlags := map[string]bool{
-		"-k": true, "--key": true,
-		"-j": true, "--jira": true,
-		"-d": true, "--jira-desc": true,
-		"-c": true, "--context": true,
-	}
 
 	// First, check for help flag (simple case, just check for -h or --help)
 	for _, arg := range os.Args[1:] {
 		if arg == "-h" || arg == "--help" {
-			helpFlag = true
-			return "", "", "", false, false, true, unknownFlags
+			return true, unknownFlags
 		}
 	}
 
-	// Process all other args
-	for i := 1; i < len(os.Args); i++ {
-		arg := os.Args[i]
-
-		// Check for flags that don't require values
-		if knownSingleFlags[arg] {
-			// Set appropriate flag
-			switch arg {
-			case "-v", "--verbose":
-				verbosityLevel = Verbose
-			case "-vv":
-				verbosityLevel = MoreVerbose
-			case "-vvv":
-				verbosityLevel = Debug
-			case "-a", "--auto":
-				autoCommit = true
-			case "-s", "--store-key":
-				storeKey = true
-			case "-cc":
-				contextLines = 10 // Medium context
-			case "-ccc":
-				contextLines = -1 // Signal for maximum context
-			}
-			continue
-		}
-
-		// Check for flags that require values
-		if knownParamFlags[arg] && i+1 < len(os.Args) {
-			// Set appropriate value
-			switch arg {
-			case "-k", "--key":
-				apiKey = os.Args[i+1]
-			case "-j", "--jira":
-				jiraID = os.Args[i+1]
-			case "-d", "--jira-desc":
-				jiraDesc = os.Args[i+1]
-			case "-c", "--context":
-				// Try to parse context lines as an integer
-				fmt.Sscanf(os.Args[i+1], "%d", &contextLines)
-				// If parsing fails, contextLines will remain at the default value
-			}
-			i++ // Skip the next argument since we've used it
-			continue
-		}
-
-		// Check for combined forms like -vah (verbose+auto+help)
-		if strings.HasPrefix(arg, "-") && !strings.HasPrefix(arg, "--") && len(arg) > 2 {
-			// For combined flags like -vah, process each character
-			validCombined := true
-			for _, char := range arg[1:] {
-				flagChar := fmt.Sprintf("-%c", char)
-				if knownSingleFlags[flagChar] {
-					// Set appropriate flag
-					switch flagChar {
-					case "-v":
-						// In combined flags, treat -v as basic verbose
-						if verbosityLevel < Verbose {
-							verbosityLevel = Verbose
-						}
-					case "-a":
-						autoCommit = true
-					case "-s":
-						storeKey = true
-					case "-h":
-						helpFlag = true
-					}
-				} else if knownParamFlags[flagChar] {
-					// This is a flag that needs a parameter, which isn't valid in combined form
-					validCombined = false
-					break
-				} else {
-					validCombined = false
-					break
-				}
-			}
-
-			if validCombined {
-				continue
-			}
-		}
-
-		// If we get here, it's an unknown flag or parameter
-		if strings.HasPrefix(arg, "-") {
-			unknownFlags = append(unknownFlags, arg)
-		}
+	// Use the config package to parse arguments
+	unknownFlags, err := cfg.ParseCommandLineArgs(os.Args[1:])
+	if err != nil {
+		fmt.Printf("Error parsing command line arguments: %v\n", err)
 	}
 
-	return apiKey, jiraID, jiraDesc, storeKey, autoCommit, helpFlag, unknownFlags
+	return false, unknownFlags
 }
 
 func main() {
@@ -334,11 +230,14 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Parse command line arguments directly
-	apiKey, jiraID, jiraDesc, storeKey, autoCommit, helpFlag, unknownFlags := parseArgs()
+	// Initialize config
+	cfg = config.GetInstance()
+	if err := cfg.LoadConfig(); err != nil {
+		fmt.Printf("Warning: Error loading config: %v\n", err)
+	}
 
-	// Initialize key manager
-	keyManager = key.NewKeyManager(verbosityLevel >= Verbose)
+	// Parse command line arguments
+	isHelp, unknownFlags := parseArgs()
 
 	// Handle unknown flags
 	if len(unknownFlags) > 0 {
@@ -353,17 +252,29 @@ func main() {
 	}
 
 	// If help flag is provided, show help and exit
-	if helpFlag {
+	if isHelp {
 		printHelp()
 		os.Exit(0)
 	}
 
-	log(Normal, "Starting AI Commit Message Generator v%s", version)
-	log(Verbose, "Executable directory: %s", executableDir)
-	log(Verbose, "Platform: %s, Credential store: %s", keyManager.GetPlatform(), keyManager.GetCredentialStoreName())
-	log(MoreVerbose, "Verbosity level: %d", verbosityLevel)
-	log(Verbose, "Context lines: %d", contextLines)
+	// Save config if remember flag is enabled
+	if cfg.IsRememberFlagsEnabled() {
+		if err := cfg.SaveConfig(); err != nil {
+			fmt.Printf("Warning: Error saving config: %v\n", err)
+		}
+	}
 
+	log(config.Normal, "Starting AI Commit Message Generator v%s", version)
+	log(config.Verbose, "Executable directory: %s", executableDir)
+	log(config.Verbose, "Platform: %s, Credential store: %s", 
+		cfg.GetKeyManager().GetPlatform(), 
+		cfg.GetKeyManager().GetCredentialStoreName())
+	log(config.MoreVerbose, "Verbosity level: %d", cfg.GetVerbosity())
+	log(config.Verbose, "Context lines: %d", cfg.GetContextLines())
+
+	// Check Jira details
+	jiraID := cfg.GetJiraID()
+	jiraDesc := cfg.GetJiraDesc()
 	if jiraID != "" {
 		logVerbose("Using provided Jira ID: %s", jiraID)
 		if jiraDesc != "" {
@@ -371,8 +282,12 @@ func main() {
 		}
 	}
 
+	// Get the keyManager for easier access
+	keyManager := cfg.GetKeyManager()
+
 	// Handle storing the key in credential store if requested
-	if storeKey && apiKey != "" {
+	apiKey := cfg.GetAPIKey()
+	if cfg.IsStoreKeyEnabled() && apiKey != "" {
 		if !keyManager.CredentialStoreAvailable() {
 			fmt.Printf("Error: No credential store available for your platform (%s).\n", keyManager.GetPlatform())
 			fmt.Println("Please use the environment variable instead: export ANTHROPIC_API_KEY=your-api-key")
@@ -380,85 +295,83 @@ func main() {
 		}
 		
 		logVerbose("Storing API key in %s...", keyManager.GetCredentialStoreName())
-		if err := keyManager.StoreInKeychain(apiKey); err != nil {
+		if err := cfg.StoreAPIKey(apiKey); err != nil {
 			fmt.Printf("Error storing API key: %v\n", err)
 			os.Exit(1)
 		}
 		fmt.Printf("API key stored successfully in %s.\n", keyManager.GetCredentialStoreName())
-		if !autoCommit {
+		if !cfg.GetAutoCommit() {
 			// Exit if we're just storing the key and not committing
 			os.Exit(0)
 		}
 	}
 
-	// Get API key from various sources
+	// Get API key from various sources if not already set
 	if apiKey == "" {
 		logVerbose("No API key provided via --key flag, checking environment...")
-		// Try to get the key using our key manager
-		apiKey, err = keyManager.GetKey("")
+		
+		// If still empty, prompt the user
+		fmt.Println("\nNo API key found. You'll need an Anthropic API key to use this tool.")
+		fmt.Println("You can get one from: https://console.anthropic.com/")
+		fmt.Println("")
+
+		// Read password without echoing it
+		enteredKey, err := readPasswordFromTerminal("Please enter your Anthropic API key: ")
 		if err != nil {
-			logVerbose("Error getting API key: %v", err)
-			
-			// If still empty, prompt the user
-			fmt.Println("\nNo API key found. You'll need an Anthropic API key to use this tool.")
-			fmt.Println("You can get one from: https://console.anthropic.com/")
-			fmt.Println("")
+			fmt.Printf("Error reading API key: %v\n", err)
+			os.Exit(1)
+		}
 
-			// Read password without echoing it
-			enteredKey, err := readPasswordFromTerminal("Please enter your Anthropic API key: ")
-			if err != nil {
-				fmt.Printf("Error reading API key: %v\n", err)
+		apiKey = strings.TrimSpace(enteredKey)
+		if apiKey == "" {
+			fmt.Println("No API key provided. Exiting.")
+			os.Exit(1)
+		}
+
+		// Basic validation
+		if !keyManager.ValidateKey(apiKey) {
+			fmt.Println("Warning: The provided API key doesn't match the expected format.")
+			fmt.Println("Anthropic API keys typically start with 'sk-ant-', 'sk-', or similar prefixes")
+			fmt.Println("and are at least 20 characters long.")
+			fmt.Print("Continue anyway? (y/n): ")
+			var continueResponse string
+			fmt.Scanln(&continueResponse)
+			if strings.ToLower(continueResponse) != "y" && strings.ToLower(continueResponse) != "yes" {
+				fmt.Println("Exiting.")
 				os.Exit(1)
-			}
-
-			apiKey = strings.TrimSpace(enteredKey)
-
-			if apiKey == "" {
-				fmt.Println("No API key provided. Exiting.")
-				os.Exit(1)
-			}
-
-			// Basic validation
-			if !keyManager.ValidateKey(apiKey) {
-				fmt.Println("Warning: The provided API key doesn't match the expected format.")
-				fmt.Println("Claude API keys typically start with 'sk_ant_' and are at least 20 characters long.")
-				fmt.Print("Continue anyway? (y/n): ")
-				var continueResponse string
-				fmt.Scanln(&continueResponse)
-				if strings.ToLower(continueResponse) != "y" && strings.ToLower(continueResponse) != "yes" {
-					fmt.Println("Exiting.")
-					os.Exit(1)
-				}
-			}
-
-			// Ask if the user wants to store the key
-			if keyManager.CredentialStoreAvailable() {
-				fmt.Printf("Would you like to store this API key securely in your %s for future use? (y/n): ", 
-					keyManager.GetCredentialStoreName())
-				var saveResponse string
-				fmt.Scanln(&saveResponse)
-				saveResponse = strings.TrimSpace(strings.ToLower(saveResponse))
-
-				if saveResponse == "y" || saveResponse == "yes" {
-					if err := keyManager.StoreInKeychain(apiKey); err != nil {
-						fmt.Printf("Error storing API key: %v\n", err)
-					} else {
-						fmt.Printf("API key stored successfully in %s. You won't need to enter it again.\n", 
-							keyManager.GetCredentialStoreName())
-					}
-				}
-			} else {
-				fmt.Println("Note: No secure credential store is available on your platform.")
-				fmt.Println("To avoid entering your API key each time, set the ANTHROPIC_API_KEY environment variable.")
 			}
 		}
+
+		// Update the API key in config
+		cfg.SetAPIKey(apiKey)
+
+		// Ask if the user wants to store the key
+		if keyManager.CredentialStoreAvailable() {
+			fmt.Printf("Would you like to store this API key securely in your %s for future use? (y/n): ", 
+				keyManager.GetCredentialStoreName())
+			var saveResponse string
+			fmt.Scanln(&saveResponse)
+			saveResponse = strings.TrimSpace(strings.ToLower(saveResponse))
+
+			if saveResponse == "y" || saveResponse == "yes" {
+				if err := cfg.StoreAPIKey(apiKey); err != nil {
+					fmt.Printf("Error storing API key: %v\n", err)
+				} else {
+					fmt.Printf("API key stored successfully in %s. You won't need to enter it again.\n", 
+						keyManager.GetCredentialStoreName())
+				}
+			}
+		} else {
+			fmt.Println("Note: No secure credential store is available on your platform.")
+			fmt.Println("To avoid entering your API key each time, set the ANTHROPIC_API_KEY environment variable.")
+		}
 	} else {
-		logVerbose("API key provided via --key flag")
+		logVerbose("API key provided via config, environment or command line")
 	}
 
 	// Get git diff information
-	logVerbose("Getting git diff information with context lines: %d", contextLines)
-	diffInfo, err := getGitDiff(jiraID, jiraDesc)
+	logVerbose("Getting git diff information with context lines: %d", cfg.GetContextLines())
+	diffInfo, err := getGitDiff(cfg.GetJiraID(), cfg.GetJiraDesc(), cfg.GetContextLines())
 	if err != nil {
 		fmt.Printf("Error getting git diff: %v\n", err)
 		os.Exit(1)
@@ -470,7 +383,7 @@ func main() {
 	}
 
 	logVerbose("Found %d staged files in branch '%s'", len(diffInfo.StagedFiles), diffInfo.Branch)
-	if verbosityLevel >= MoreVerbose {
+	if cfg.GetVerbosity() >= config.MoreVerbose {
 		for i, file := range diffInfo.StagedFiles {
 			fmt.Printf("  %d: %s\n", i+1, file)
 		}
@@ -479,7 +392,7 @@ func main() {
 	// Generate commit message
 	fmt.Println("Generating commit message with Claude AI...")
 	startTime := time.Now()
-	message, err := generateCommitMessage(apiKey, diffInfo)
+	message, err := generateCommitMessage(cfg.GetAPIKey(), cfg.GetModelName(), diffInfo)
 	if err != nil {
 		fmt.Printf("Error generating commit message: %v\n", err)
 		os.Exit(1)
@@ -494,7 +407,7 @@ func main() {
 	fmt.Println(strings.Repeat("=", 50))
 
 	// Handle the commit
-	if autoCommit {
+	if cfg.GetAutoCommit() {
 		logVerbose("Auto-commit enabled, committing changes...")
 		err = commitWithMessage(message)
 		if err != nil {
@@ -537,7 +450,7 @@ func main() {
 	}
 }
 
-func getGitDiff(jiraID string, jiraDesc string) (GitDiff, error) {
+func getGitDiff(jiraID string, jiraDesc string, contextLines int) (GitDiff, error) {
 	var diffInfo GitDiff
 	diffInfo.JiraID = jiraID
 	diffInfo.JiraDescription = jiraDesc
@@ -550,7 +463,7 @@ func getGitDiff(jiraID string, jiraDesc string) (GitDiff, error) {
 	}
 
 	// Get list of staged files
-	log(Verbose, "Getting list of staged files...")
+	log(config.Verbose, "Getting list of staged files...")
 	cmd = exec.Command("git", "diff", "--name-only", "--cached")
 	output, err := cmd.Output()
 	if err != nil {
@@ -559,36 +472,36 @@ func getGitDiff(jiraID string, jiraDesc string) (GitDiff, error) {
 	diffInfo.StagedFiles = strings.Split(strings.TrimSpace(string(output)), "\n")
 	
 	// Log file details at MoreVerbose level with clear formatting
-	if verbosityLevel >= MoreVerbose {
-		log(MoreVerbose, "===== STAGED FILES (%d) =====", len(diffInfo.StagedFiles))
+	if cfg.GetVerbosity() >= config.MoreVerbose {
+		log(config.MoreVerbose, "===== STAGED FILES (%d) =====", len(diffInfo.StagedFiles))
 		for i, file := range diffInfo.StagedFiles {
-			log(MoreVerbose, "File #%d: %s", i+1, file)
+			log(config.MoreVerbose, "File #%d: %s", i+1, file)
 			
 			// Get file stats
 			statCmd := exec.Command("git", "diff", "--cached", "--stat", file)
 			statOutput, statErr := statCmd.Output()
 			if statErr == nil {
-				log(MoreVerbose, "  Changes: %s", strings.TrimSpace(string(statOutput)))
+				log(config.MoreVerbose, "  Changes: %s", strings.TrimSpace(string(statOutput)))
 			}
 			
 			// For debug level, show more detailed file info
-			if verbosityLevel >= Debug {
+			if cfg.GetVerbosity() >= config.Debug {
 				// Get file type
 				typeCmd := exec.Command("git", "check-attr", "diff", "--", file)
 				typeOutput, typeErr := typeCmd.Output()
 				if typeErr == nil {
-					log(Debug, "  Attributes: %s", strings.TrimSpace(string(typeOutput)))
+					log(config.Debug, "  Attributes: %s", strings.TrimSpace(string(typeOutput)))
 				}
 				
 				// Get file size
 				sizeCmd := exec.Command("git", "ls-files", "-s", file)
 				sizeOutput, sizeErr := sizeCmd.Output()
 				if sizeErr == nil {
-					log(Debug, "  Details: %s", strings.TrimSpace(string(sizeOutput)))
+					log(config.Debug, "  Details: %s", strings.TrimSpace(string(sizeOutput)))
 				}
 			}
 		}
-		log(MoreVerbose, "=============================")
+		log(config.MoreVerbose, "=============================")
 	}
 
 	// Get the diff details with context
@@ -630,7 +543,7 @@ func getGitDiff(jiraID string, jiraDesc string) (GitDiff, error) {
 			}
 			
 			diffInfo.Diff = fullDiff.String()
-			log(MoreVerbose, "Full context diff length: %d bytes", len(diffInfo.Diff))
+			log(config.MoreVerbose, "Full context diff length: %d bytes", len(diffInfo.Diff))
 			
 			// Get the branch info and return
 			diffInfo = getBranchInfo(diffInfo)
@@ -645,7 +558,7 @@ func getGitDiff(jiraID string, jiraDesc string) (GitDiff, error) {
 		return diffInfo, err
 	}
 	diffInfo.Diff = string(output)
-	log(MoreVerbose, "Diff length: %d bytes", len(diffInfo.Diff))
+	log(config.MoreVerbose, "Diff length: %d bytes", len(diffInfo.Diff))
 
 	// Get the branch info and return
 	return getBranchInfo(diffInfo), nil
@@ -664,45 +577,45 @@ func getBranchInfo(diffInfo GitDiff) GitDiff {
 	// Try to extract Jira ID from branch name if not provided
 	if diffInfo.JiraID == "" && diffInfo.Branch != "" {
 		// Common branch naming patterns like feature/GTBUG-123-description or bugfix/GTN-456-description
-		log(Verbose, "Trying to extract Jira ID from branch name: %s", diffInfo.Branch)
+		log(config.Verbose, "Trying to extract Jira ID from branch name: %s", diffInfo.Branch)
 		
 		// Get more branch info at MoreVerbose level with clear formatting
-		if verbosityLevel >= MoreVerbose {
-			log(MoreVerbose, "===== BRANCH INFO =====")
-			log(MoreVerbose, "Name: %s", diffInfo.Branch)
+		if cfg.GetVerbosity() >= config.MoreVerbose {
+			log(config.MoreVerbose, "===== BRANCH INFO =====")
+			log(config.MoreVerbose, "Name: %s", diffInfo.Branch)
 			
 			// Get branch creation date
 			dateCmd := exec.Command("git", "show", "-s", "--format=%ci", diffInfo.Branch)
 			dateOutput, dateErr := dateCmd.Output()
 			if dateErr == nil {
-				log(MoreVerbose, "Created: %s", strings.TrimSpace(string(dateOutput)))
+				log(config.MoreVerbose, "Created: %s", strings.TrimSpace(string(dateOutput)))
 			}
 			
 			// Get branch tracking info
 			trackCmd := exec.Command("git", "for-each-ref", "--format='%(upstream:short)'", "refs/heads/"+diffInfo.Branch)
 			trackOutput, trackErr := trackCmd.Output()
 			if trackErr == nil && len(trackOutput) > 0 {
-				log(MoreVerbose, "Tracks: %s", strings.TrimSpace(string(trackOutput)))
+				log(config.MoreVerbose, "Tracks: %s", strings.TrimSpace(string(trackOutput)))
 			}
 			
 			// For debug level, show more detailed branch info
-			if verbosityLevel >= Debug {
+			if cfg.GetVerbosity() >= config.Debug {
 				// Get last commit info
 				commitCmd := exec.Command("git", "log", "-1", "--pretty=%h %s", diffInfo.Branch)
 				commitOutput, commitErr := commitCmd.Output()
 				if commitErr == nil {
-					log(Debug, "Last commit: %s", strings.TrimSpace(string(commitOutput)))
+					log(config.Debug, "Last commit: %s", strings.TrimSpace(string(commitOutput)))
 				}
 				
 				// Get commit count
 				countCmd := exec.Command("git", "rev-list", "--count", diffInfo.Branch)
 				countOutput, countErr := countCmd.Output()
 				if countErr == nil {
-					log(Debug, "Commit count: %s", strings.TrimSpace(string(countOutput)))
+					log(config.Debug, "Commit count: %s", strings.TrimSpace(string(countOutput)))
 				}
 			}
 			
-			log(MoreVerbose, "======================")
+			log(config.MoreVerbose, "======================")
 		}
 
 		// Look for GTBUG-XXX pattern
@@ -717,7 +630,7 @@ func getBranchInfo(diffInfo GitDiff) GitDiff {
 
 			if end > start+6 { // Make sure we found at least one digit
 				diffInfo.JiraID = diffInfo.Branch[start:end]
-				log(MoreVerbose, "Extracted Jira ID from branch name: %s", diffInfo.JiraID)
+				log(config.MoreVerbose, "Extracted Jira ID from branch name: %s", diffInfo.JiraID)
 			}
 		} else if idx := strings.Index(strings.ToUpper(diffInfo.Branch), "GTN-"); idx >= 0 {
 			// Look for GTN-XXX pattern
@@ -731,7 +644,7 @@ func getBranchInfo(diffInfo GitDiff) GitDiff {
 
 			if end > start+4 { // Make sure we found at least one digit
 				diffInfo.JiraID = diffInfo.Branch[start:end]
-				log(MoreVerbose, "Extracted Jira ID from branch name: %s", diffInfo.JiraID)
+				log(config.MoreVerbose, "Extracted Jira ID from branch name: %s", diffInfo.JiraID)
 			}
 		}
 	}
@@ -739,7 +652,7 @@ func getBranchInfo(diffInfo GitDiff) GitDiff {
 	return diffInfo
 }
 
-func generateCommitMessage(apiKey string, diffInfo GitDiff) (string, error) {
+func generateCommitMessage(apiKey string, modelName string, diffInfo GitDiff) (string, error) {
 	// Read system prompt from file
 	systemPrompt, err := readPromptFile("system_prompt.txt")
 	if err != nil {
@@ -762,20 +675,20 @@ func generateCommitMessage(apiKey string, diffInfo GitDiff) (string, error) {
 		diffInfo.JiraDescription,
 	)
 
-	log(Verbose, "Building Claude API request...")
-	log(Debug, "System prompt length: %d bytes", len(systemPrompt))
-	log(Debug, "User prompt length: %d bytes", len(userPrompt))
+	log(config.Verbose, "Building Claude API request...")
+	log(config.Debug, "System prompt length: %d bytes", len(systemPrompt))
+	log(config.Debug, "User prompt length: %d bytes", len(userPrompt))
 	
 	// Print full prompts at debug level with clear formatting
-	log(Debug, "===== SYSTEM PROMPT START =====")
-	log(Debug, "%s", systemPrompt)
-	log(Debug, "===== SYSTEM PROMPT END =====\n")
+	log(config.Debug, "===== SYSTEM PROMPT START =====")
+	log(config.Debug, "%s", systemPrompt)
+	log(config.Debug, "===== SYSTEM PROMPT END =====\n")
 	
-	log(Debug, "===== USER PROMPT START =====")
-	log(Debug, "%s", userPrompt)
-	log(Debug, "===== USER PROMPT END =====\n")
+	log(config.Debug, "===== USER PROMPT START =====")
+	log(config.Debug, "%s", userPrompt)
+	log(config.Debug, "===== USER PROMPT END =====\n")
 	request := Request{
-		Model:     "claude-3-haiku-20240307",
+		Model:     modelName,
 		MaxTokens: 1000,
 		System:    systemPrompt,
 		Messages: []Message{
@@ -788,7 +701,7 @@ func generateCommitMessage(apiKey string, diffInfo GitDiff) (string, error) {
 		return "", err
 	}
 
-	log(Verbose, "Sending request to Claude API...")
+	log(config.Verbose, "Sending request to Claude API...")
 	requestStartTime := time.Now()
 	req, err := http.NewRequest("POST", anthropicAPI, bytes.NewBuffer(requestBody))
 	if err != nil {
@@ -802,7 +715,7 @@ func generateCommitMessage(apiKey string, diffInfo GitDiff) (string, error) {
 	client := &http.Client{}
 	resp, err := client.Do(req)
 	requestDuration := time.Since(requestStartTime)
-	log(MoreVerbose, "API request took %.2f seconds", requestDuration.Seconds())
+	log(config.MoreVerbose, "API request took %.2f seconds", requestDuration.Seconds())
 	
 	if err != nil {
 		return "", err
@@ -810,22 +723,22 @@ func generateCommitMessage(apiKey string, diffInfo GitDiff) (string, error) {
 	defer resp.Body.Close()
 
 	// Log HTTP response details at debug level with clear formatting
-	log(Debug, "===== HTTP RESPONSE DETAILS =====")
-	log(Debug, "Status: %s", resp.Status)
-	log(Debug, "Headers:")
+	log(config.Debug, "===== HTTP RESPONSE DETAILS =====")
+	log(config.Debug, "Status: %s", resp.Status)
+	log(config.Debug, "Headers:")
 	
 	// Print headers in a more readable format
 	for key, values := range resp.Header {
 		for _, value := range values {
-			log(Debug, "  %s: %s", key, value)
+			log(config.Debug, "  %s: %s", key, value)
 		}
 	}
-	log(Debug, "==================================")
+	log(config.Debug, "==================================")
 	
 	if resp.StatusCode != http.StatusOK {
 		bodyBytes, _ := io.ReadAll(resp.Body)
 		errorMsg := string(bodyBytes)
-		log(Debug, "API error response body: %s", errorMsg)
+		log(config.Debug, "API error response body: %s", errorMsg)
 		return "", fmt.Errorf("API error (status %d): %s", resp.StatusCode, errorMsg)
 	}
 
@@ -840,14 +753,14 @@ func generateCommitMessage(apiKey string, diffInfo GitDiff) (string, error) {
 	}
 
 	// Format API response for better readability
-	log(Debug, "===== API RESPONSE START =====")
+	log(config.Debug, "===== API RESPONSE START =====")
 	formattedJSON, err := json.MarshalIndent(response, "", "  ")
 	if err == nil {
-		log(Debug, "%s", string(formattedJSON))
+		log(config.Debug, "%s", string(formattedJSON))
 	} else {
-		log(Debug, "%+v", response)
+		log(config.Debug, "%+v", response)
 	}
-	log(Debug, "===== API RESPONSE END =====\n")
+	log(config.Debug, "===== API RESPONSE END =====\n")
 	return response.Content[0].Text, nil
 }
 

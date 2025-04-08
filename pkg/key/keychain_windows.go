@@ -5,46 +5,57 @@ package key
 
 import (
 	"fmt"
+
+	"github.com/danieljoos/wincred"
 )
 
 // windowsGetFromCredentialManager retrieves the API key from Windows Credential Manager
 func (k *KeyManager) windowsGetFromCredentialManager() (string, error) {
 	k.log("Retrieving API key from Windows Credential Manager...")
 	
-	// Note: In a real implementation, we would use the wincred package:
-	// https://pkg.go.dev/github.com/danieljoos/wincred
-	// 
-	// Here's a sketch of how it would look:
-	//
-	// cred, err := wincred.GetGenericCredential(k.keychainService)
-	// if err != nil {
-	//     return "", fmt.Errorf("failed to retrieve API key from Windows Credential Manager: %v", err)
-	// }
-	// return string(cred.CredentialBlob), nil
+	// Create a credential target name that includes the service
+	targetName := fmt.Sprintf("%s:%s", k.keychainService, k.keychainAccount)
 	
-	// For now, just return an error indicating this needs to be implemented
-	return "", fmt.Errorf("Windows Credential Manager support requires the wincred package")
+	// Attempt to get the credential from Windows Credential Manager
+	cred, err := wincred.GetGenericCredential(targetName)
+	if err != nil {
+		return "", fmt.Errorf("failed to retrieve API key from Windows Credential Manager: %v", err)
+	}
+	
+	// Return the credential as a string
+	return string(cred.CredentialBlob), nil
 }
 
 // windowsStoreInCredentialManager stores the API key in Windows Credential Manager
 func (k *KeyManager) windowsStoreInCredentialManager(apiKey string) error {
 	k.log("Storing API key in Windows Credential Manager...")
 	
-	// Note: In a real implementation, we would use the wincred package:
-	// https://pkg.go.dev/github.com/danieljoos/wincred
-	// 
-	// Here's a sketch of how it would look:
-	//
-	// cred := wincred.NewGenericCredential(k.keychainService)
-	// cred.UserName = k.keychainAccount
-	// cred.CredentialBlob = []byte(apiKey)
-	// cred.Persist = wincred.PersistLocalMachine
-	// err := cred.Write()
-	// if err != nil {
-	//     return fmt.Errorf("failed to store API key in Windows Credential Manager: %v", err)
-	// }
-	// return nil
+	// Create a credential target name that includes the service
+	targetName := fmt.Sprintf("%s:%s", k.keychainService, k.keychainAccount)
 	
-	// For now, just return an error indicating this needs to be implemented
-	return fmt.Errorf("Windows Credential Manager support requires the wincred package")
+	// First, try to delete any existing credential with the same target name
+	existing, err := wincred.GetGenericCredential(targetName)
+	if err == nil && existing != nil {
+		k.log("Deleting existing credential...")
+		err = existing.Delete()
+		if err != nil {
+			k.log("Warning: Could not delete existing credential: %v", err)
+			// Continue anyway, we'll try to overwrite it
+		}
+	}
+	
+	// Create a new generic credential
+	cred := wincred.NewGenericCredential(targetName)
+	cred.UserName = k.keychainAccount
+	cred.CredentialBlob = []byte(apiKey)
+	cred.Persist = wincred.PersistLocalMachine
+	cred.Comment = "API key for AI Commit Message Generator"
+	
+	// Write the credential to the Windows Credential Manager
+	err = cred.Write()
+	if err != nil {
+		return fmt.Errorf("failed to store API key in Windows Credential Manager: %v", err)
+	}
+	
+	return nil
 }
