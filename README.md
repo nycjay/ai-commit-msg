@@ -118,10 +118,18 @@ The tool uses a flexible configuration system with the following precedence (hig
 
 Configuration is stored in the following locations:
 
-- **XDG-compatible**: `$XDG_CONFIG_HOME/ai-commit-msg/config.toml` if XDG_CONFIG_HOME is set
-- **Standard location**: `~/.config/ai-commit-msg/config.toml` otherwise
+- **macOS**:
+  - `~/.config/ai-commit-msg/config.toml`
+  - `~/Library/Application Support/ai-commit-msg/config.toml`
+- **Windows**:
+  - `~/.config/ai-commit-msg/config.toml`
+  - `%USERPROFILE%\.config\ai-commit-msg\config.toml`
+  - `%APPDATA%\ai-commit-msg\config.toml`
+- **Linux/XDG-compatible**:
+  - `$XDG_CONFIG_HOME/ai-commit-msg/config.toml` (if XDG_CONFIG_HOME is set)
+  - `~/.config/ai-commit-msg/config.toml` (fallback)
 
-The path is determined dynamically based on your user's home directory.
+The path is determined dynamically based on your operating system and user's home directory, with cross-platform compatibility in mind.
 
 You can persist command-line options to the configuration file using the `--remember` flag:
 

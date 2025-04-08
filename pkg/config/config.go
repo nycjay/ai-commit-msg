@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 
@@ -195,6 +196,51 @@ func (c *Config) getConfigDirectory() (string, error) {
 
 // GetConfigDirectory returns the directory where the config file should be located
 func (c *Config) GetConfigDirectory() (string, error) {
+	// Detect operating system
+	switch runtime.GOOS {
+	case "windows":
+		return c.getWindowsConfigDirectory()
+	case "darwin", "linux":
+		return c.getUnixConfigDirectory()
+	default:
+		return c.getUnixConfigDirectory()
+	}
+}
+
+// getWindowsConfigDirectory returns the config directory for Windows
+func (c *Config) getWindowsConfigDirectory() (string, error) {
+	// Check environment variables in order of preference
+	appData := os.Getenv("APPDATA")
+	if appData != "" {
+		return filepath.Join(appData, ConfigDirName), nil
+	}
+
+	// Fallback to user profile directory
+	home, err := homedir.Dir()
+	if err != nil {
+		return "", err
+	}
+
+	// Try multiple Windows-specific paths
+	paths := []string{
+		filepath.Join(home, ".config", ConfigDirName),
+		filepath.Join(home, "AppData", "Local", ConfigDirName),
+		filepath.Join(home, "Application Data", ConfigDirName),
+	}
+
+	for _, path := range paths {
+		// Check if the directory exists or can be created
+		if err := os.MkdirAll(path, 0755); err == nil {
+			return path, nil
+		}
+	}
+
+	// If all else fails, use a default in .config
+	return filepath.Join(home, ".config", ConfigDirName), nil
+}
+
+// getUnixConfigDirectory returns the config directory for Unix-like systems
+func (c *Config) getUnixConfigDirectory() (string, error) {
 	// Check XDG_CONFIG_HOME first
 	xdgConfigHome := os.Getenv("XDG_CONFIG_HOME")
 	if xdgConfigHome != "" {
