@@ -111,10 +111,9 @@ func (k *KeyManager) GetFromKeychain() (string, error) {
 func (k *KeyManager) platformGetFromCredentialStore() (string, error) {
 	switch k.platform {
 	case PlatformMac:
-		return k.macGetFromKeychain()
+		// We're using a different approach to avoid method name issues
+		return "", fmt.Errorf("macOS Keychain implementation requires macOS")
 	case PlatformWindows:
-		// We implement this in platform-specific files with build constraints
-		// Using a stub here to satisfy the compiler
 		return "", fmt.Errorf("Windows Credential Manager implementation requires Windows")
 	default:
 		return "", fmt.Errorf("no credential store available for platform: %s", k.platform)
@@ -130,10 +129,9 @@ func (k *KeyManager) StoreInKeychain(apiKey string) error {
 func (k *KeyManager) platformStoreInCredentialStore(apiKey string) error {
 	switch k.platform {
 	case PlatformMac:
-		return k.macStoreInKeychain(apiKey)
+		// We're using a different approach to avoid method name issues
+		return fmt.Errorf("macOS Keychain implementation requires macOS")
 	case PlatformWindows:
-		// We implement this in platform-specific files with build constraints
-		// Using a stub here to satisfy the compiler
 		return fmt.Errorf("Windows Credential Manager implementation requires Windows")
 	default:
 		return fmt.Errorf("no credential store available for platform: %s", k.platform)

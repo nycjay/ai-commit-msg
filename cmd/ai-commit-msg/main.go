@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 
@@ -79,7 +80,7 @@ func logVerbose(format string, args ...interface{}) {
 
 func printHelp() {
 	fmt.Printf("AI Commit Message Generator v%s\n\n", version)
-	fmt.Println("A tool that uses Claude AI to generate high-quality commit messages for your staged changes.")
+	fmt.Println("A tool that uses AI to generate high-quality commit messages for your staged changes.")
 	fmt.Println("")
 	fmt.Println("USAGE:")
 	fmt.Println("  ai-commit-msg [OPTIONS]")
@@ -744,13 +745,54 @@ func main() {
 	if apiKey == "" {
 		logVerbose("No API key provided via --key flag, checking environment...")
 		
-		// If still empty, prompt the user
-		fmt.Println("\nNo API key found. You'll need an Anthropic API key to use this tool.")
-		fmt.Println("You can get one from: https://console.anthropic.com/")
+		// First-time setup
+		fmt.Println("\n===== Welcome to AI Commit Message Generator =====")
+		fmt.Println("It looks like this is the first time you're using this tool.")
+		
+		// Provider selection
+		providers := []string{"Anthropic", "OpenAI", "Gemini"}
+		fmt.Println("\nLet's start by choosing your default AI provider:")
+		for i, provider := range providers {
+			fmt.Printf("%d. %s\n", i+1, provider)
+		}
+		
+		var providerChoice int
+		for {
+			fmt.Print("\nEnter the number of your preferred provider (1-3): ")
+			_, err := fmt.Scanf("%d", &providerChoice)
+			if err != nil || providerChoice < 1 || providerChoice > len(providers) {
+				fmt.Println("Invalid choice. Please enter a number between 1 and 3.")
+				continue
+			}
+			break
+		}
+		
+		selectedProvider := strings.ToLower(providers[providerChoice-1])
+		cfg.SetProvider(selectedProvider)
+		
+		// Provider-specific API key guidance
+		var apiKeyUrl string
+		switch selectedProvider {
+		case "anthropic":
+			apiKeyUrl = "https://console.anthropic.com/"
+		case "openai":
+			apiKeyUrl = "https://platform.openai.com/account/api-keys"
+		case "gemini":
+			apiKeyUrl = "https://makersuite.google.com/app/apikey"
+		}
+		
+		fmt.Printf("\nYou've selected %s as your default provider.\n", providers[providerChoice-1])
 		fmt.Println("")
-
+		fmt.Printf("To use this tool, you'll need an API key from %s.\n", providers[providerChoice-1])
+		fmt.Println("Getting an API key is quick and easy:")
+		fmt.Printf("1. Visit: %s\n", apiKeyUrl)
+		fmt.Println("2. Sign up or log in to your account")
+		fmt.Println("3. Navigate to the API keys section")
+		fmt.Println("4. Create a new API key")
+		fmt.Println("")
+		
 		// Read password without echoing it
-		enteredKey, err := readPasswordFromTerminal("Please enter your Anthropic API key: ")
+		enteredKey, err := readPasswordFromTerminal("Paste your API key here: ")
 		if err != nil {
 			fmt.Printf("Error reading API key: %v\n", err)
 			os.Exit(1)
@@ -758,46 +800,86 @@ func main() {
 
 		apiKey = strings.TrimSpace(enteredKey)
 		if apiKey == "" {
-			fmt.Println("No API key provided. Exiting.")
+			fmt.Println("\nNo API key provided. The tool cannot proceed without an API key.")
+			fmt.Printf("If you're having trouble, visit %s to obtain a key.\n", apiKeyUrl)
 			os.Exit(1)
 		}
 
-		// Basic validation
-		if !keyManager.ValidateKey(apiKey) {
-			fmt.Println("Warning: The provided API key doesn't match the expected format.")
-			fmt.Println("Anthropic API keys typically start with 'sk-ant-', 'sk-', or similar prefixes")
-			fmt.Println("and are at least 20 characters long.")
-			fmt.Print("Continue anyway? (y/n): ")
+		// Provider-specific key validation
+		var validationPattern string
+		var validationDescription string
+		switch selectedProvider {
+		case "anthropic":
+			validationPattern = `^sk-ant-|^sk-`
+			validationDescription = "Anthropic API keys typically start with 'sk-ant-' or 'sk-'"
+		case "openai":
+			validationPattern = `^sk-`
+			validationDescription = "OpenAI API keys typically start with 'sk-'"
+		case "gemini":
+			validationPattern = `.+`  // Gemini keys have less strict format requirements
+			validationDescription = "Gemini API keys"
+		}
+
+		matched, _ := regexp.MatchString(validationPattern, apiKey)
+		if !matched {
+			fmt.Printf("\nWarning: The provided %s API key format looks incorrect.\n", 
+				strings.Title(selectedProvider))
+			fmt.Println(validationDescription)
+			fmt.Println("- Should be at least 20 characters long")
+			fmt.Println("")
+			fmt.Print("Are you sure you want to continue with this key? (y/n): ")
 			var continueResponse string
 			fmt.Scanln(&continueResponse)
 			if strings.ToLower(continueResponse) != "y" && strings.ToLower(continueResponse) != "yes" {
-				fmt.Println("Exiting.")
+				fmt.Println("API key setup cancelled. Exiting.")
 				os.Exit(1)
 			}
 		}
 
 		// Update the API key in config
-		cfg.SetAPIKey(apiKey)
+		cfg.SetProviderKey(selectedProvider, apiKey)
 
 		// Ask if the user wants to store the key
 		if keyManager.CredentialStoreAvailable() {
-			fmt.Printf("Would you like to store this API key securely in your %s for future use? (y/n): ", 
-				keyManager.GetCredentialStoreName())
-			var saveResponse string
-			fmt.Scanln(&saveResponse)
-			saveResponse = strings.TrimSpace(strings.ToLower(saveResponse))
+			fmt.Println("\n🔐 API Key Storage")
+			fmt.Println("You can securely store your API key in your system's credential manager.")
+			fmt.Println("This allows you to use the tool without re-entering the key each time.")
+			fmt.Println("")
+			fmt.Printf("Would you like to store your %s API key in %s? (y/n): ", 
+				strings.Title(selectedProvider), keyManager.GetCredentialStoreName())
+			
+			var storeKeyResponse string
+			fmt.Scanln(&storeKeyResponse)
+			storeKeyResponse = strings.TrimSpace(strings.ToLower(storeKeyResponse))
 
-			if saveResponse == "y" || saveResponse == "yes" {
-				if err := cfg.StoreAPIKey(apiKey); err != nil {
+			if storeKeyResponse == "y" || storeKeyResponse == "yes" {
+				if err := cfg.StoreProviderAPIKey(selectedProvider, apiKey); err != nil {
 					fmt.Printf("Error storing API key: %v\n", err)
+					fmt.Println("\nYou'll need to enter the API key manually each time you use the tool.")
 				} else {
-					fmt.Printf("API key stored successfully in %s. You won't need to enter it again.\n", 
-						keyManager.GetCredentialStoreName())
+					fmt.Println("\n✅ Success!")
+					fmt.Printf("API key stored securely in %s.\n", keyManager.GetCredentialStoreName())
+					fmt.Println("You won't need to enter it again on this machine.")
 				}
+			} else {
+				fmt.Println("\n⚠️  API key will not be stored.")
+				fmt.Println("You'll need to enter the API key manually each time you use the tool.")
+				
+				envVarName := strings.ToUpper(selectedProvider) + "_API_KEY"
+				fmt.Printf("\nTip: You can also set the %s environment variable to avoid manual entry.\n", envVarName)
+				fmt.Printf("Example: export %s=your_%s_api_key_here\n", envVarName, selectedProvider)
 			}
 		} else {
-			fmt.Println("Note: No secure credential store is available on your platform.")
-			fmt.Println("To avoid entering your API key each time, set the ANTHROPIC_API_KEY environment variable.")
+			fmt.Println("\n⚠️  No secure credential store available on your platform.")
+			
+			envVarName := strings.ToUpper(selectedProvider) + "_API_KEY"
+			fmt.Printf("Recommended alternative: Set the %s environment variable.\n", envVarName)
+			fmt.Printf("Example: export %s=your_%s_api_key_here\n", envVarName, selectedProvider)
+		}
+
+		// Save the configuration to persist the provider selection
+		if err := cfg.SaveConfig(); err != nil {
+			fmt.Printf("Warning: Could not save configuration: %v\n", err)
 		}
 	} else {
 		logVerbose("API key provided via config, environment or command line")

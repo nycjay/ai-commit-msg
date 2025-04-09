@@ -23,9 +23,55 @@ A tool that uses AI to automatically generate high-quality git commit messages b
 git clone https://github.com/nycjay/ai-commit-msg.git
 cd ai-commit-msg
 
-# Build and install
+# Basic build (builds for all platforms)
 ./build.sh
+
+# Tests run by default with all builds
+./build.sh
+
+# Build with a specific version
+./build.sh --version 1.2.3
+
+# Build only for current platform
+./build.sh --single-platform
+
+# Run tests only without building
+./build.sh --test-only
+
+# Build and create a symlink in /usr/local/bin (macOS/Linux only)
+./build.sh --symlink
 ```
+
+### Build Script Options
+
+The `build.sh` script provides several options to customize the build process:
+
+- `--version VERSION`: Specify a custom version number
+  - If not provided, reads version from `VERSION` file
+  - Falls back to `0.1.0` if no version is found
+
+- `--test`: Run unit tests explicitly (tests run by default)
+  - Tests are run automatically with every build unless `--skip-tests` is specified
+  - Checks compilation first
+  - Stops the build if any tests fail
+  - Provides colorful test result output with coverage information
+
+- `--test-only`: Only run tests without building
+  - Useful for quick verification of code changes
+
+- `--skip-tests`: Skip running tests (use when you want a faster build)
+  - By default, the script runs all unit tests before building
+  - This flag bypasses the test phase completely
+
+- `--single-platform`: Build only for the current platform
+  - By default, the script builds for multiple platforms (macOS Intel, macOS Apple Silicon, and Windows)
+
+- `--symlink`: Create a symlink in /usr/local/bin (macOS/Linux only)
+  - Makes the tool available globally in your PATH
+  - Requires sudo privileges to create the symlink
+  - Not applicable on Windows systems
+
+- `--help`: Display help information about build script options
 
 ### Version Management
 
@@ -36,19 +82,24 @@ The project uses a `VERSION` file to track the current version of the tool:
 - Example version update:
   ```bash
   echo "1.0.0" > VERSION  # Update to version 1.0.0
-  ./build.sh             # Build with the new version
+  ./build.sh             # Build with the new version for all platforms
   ```
 
 You can also override the version temporarily during build:
 ```bash
 # Build with a specific version without modifying the VERSION file
-./build.sh 1.2.3
+./build.sh --version 1.2.3
 ```
 
 When releasing a new version:
 1. Update the `VERSION` file
 2. Create a git tag matching the version
-3. Build and distribute the new binary
+3. Build for all platforms: `./build.sh`
+4. Distribute the binaries from the `bin/` directory:
+   - `bin/ai-commit-msg-darwin-amd64` (macOS Intel)
+   - `bin/ai-commit-msg-darwin-arm64` (macOS Apple Silicon)
+   - `bin/ai-commit-msg-windows-amd64.exe` (Windows)
+   - `bin/ai-commit-msg-linux-amd64` (Linux, if built on Linux)
 
 ## API Key Setup
 
@@ -408,6 +459,32 @@ ai-commit-msg init-prompts
 
 ## Cross-Platform Support
 
+### Multi-Platform Builds
+
+The build script builds binaries for all major platforms by default:
+
+- **macOS Intel (AMD64)**: `bin/ai-commit-msg-darwin-amd64`
+- **macOS Apple Silicon (ARM64)**: `bin/ai-commit-msg-darwin-arm64`
+- **Windows**: `bin/ai-commit-msg-windows-amd64.exe`
+- **Linux** (when building on Linux): `bin/ai-commit-msg-linux-amd64`
+
+After building, the script automatically:
+1. Places platform-specific binaries in the `bin/` directory
+2. Copies the appropriate binary for your current platform to the project root
+3. Makes the binary executable
+
+To build for only your current platform, use the `--single-platform` flag:
+```bash
+./build.sh --single-platform
+```
+
+To create a symlink in /usr/local/bin (macOS/Linux only) for global access:
+```bash
+./build.sh --symlink
+```
+
+### Cross-Platform Credential Management
+
 The tool automatically detects your operating system and uses the appropriate credential manager:
 
 - **macOS**: Uses the macOS Keychain for secure storage via the `security` command-line tool
@@ -520,9 +597,32 @@ The tool follows this order of precedence when looking for prompt files:
 
 ## Development and Testing
 
-### Running Tests
+### Automated Testing
 
-The project includes unit tests to ensure all functionality works correctly. To run the tests:
+The project automatically runs all unit tests as part of the build process:
+
+```bash
+# Regular build runs tests by default
+./build.sh
+
+# Skip tests during build
+./build.sh --skip-tests
+
+# Run only tests without building
+./build.sh --test-only
+```
+
+The build script provides a comprehensive test report including:
+- A detailed coverage report for each package
+- Average coverage percentage across all packages
+- Warning indicators when coverage is too low (below 70%)
+- Clear indication if tests are just placeholders with no real coverage
+- Package-by-package test results
+- Detailed test output is shown when using `--verbose` flag
+
+### Running Tests Manually
+
+You can also run tests manually using Go's testing tools:
 
 ```bash
 # Run all tests
