@@ -20,8 +20,10 @@ if [ -f "ai-commit-msg" ]; then
 fi
 
 # Build the tool
-echo "Compiling with Go..."
-go build -o ai-commit-msg ./cmd/ai-commit-msg
+# Prefer explicitly passed version, otherwise read from VERSION file, fallback to default
+VERSION="${1:-$(cat VERSION 2>/dev/null || echo "0.1.0")}"
+echo "Compiling with Go... (Version: $VERSION)"
+go build -ldflags "-X main.version=$VERSION" -o ai-commit-msg ./cmd/ai-commit-msg
 
 # Make executable
 chmod +x ai-commit-msg

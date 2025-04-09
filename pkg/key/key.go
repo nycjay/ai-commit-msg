@@ -11,11 +11,15 @@ const (
 	// KeychainService is the service name used in credential stores
 	KeychainService = "ai-commit-msg"
 	
-	// KeychainAccount is the account name used in credential stores
-	KeychainAccount = "anthropic-api-key"
+	// Provider-specific account names for credential stores
+	KeychainAccount = "anthropic-api-key" // Original Anthropic account
+	OpenAIAccount   = "openai-api-key"    // OpenAI account
+	GeminiAccount   = "gemini-api-key"    // Gemini account
 	
-	// EnvVarName is the environment variable name for the API key
-	EnvVarName = "ANTHROPIC_API_KEY"
+	// Provider-specific environment variable names
+	EnvVarName      = "ANTHROPIC_API_KEY" // Original Anthropic env var
+	OpenAIEnvVar    = "OPENAI_API_KEY"    // OpenAI env var
+	GeminiEnvVar    = "GEMINI_API_KEY"    // Gemini env var
 )
 
 // Platform represents the OS platform for credential storage

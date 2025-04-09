@@ -50,6 +50,10 @@ type Config struct {
 	ModelName         string         `mapstructure:"model_name"`
 	SystemPromptPath  string         `mapstructure:"system_prompt_path"`
 	UserPromptPath    string         `mapstructure:"user_prompt_path"`
+	
+	// Provider configuration
+	Provider         string               `mapstructure:"provider"`
+	ProviderModels   map[string]string    `mapstructure:"provider_models"`
 
 	// Runtime-only values (not saved to config)
 	APIKey        string `mapstructure:"-"` // Sensitive, stored in keychain
@@ -57,6 +61,13 @@ type Config struct {
 	JiraDesc      string `mapstructure:"-"` // Command-line only
 	AutoCommit    bool   `mapstructure:"-"` // Command-line only
 	StoreKey      bool   `mapstructure:"-"` // Command-line only
+
+	
+	// Provider-specific API keys (runtime only, not saved to config)
+	ProviderKeys   map[string]string `mapstructure:"-"`
+	
+	// Directory containing the executable (for finding default prompts)
+	executableDir string `mapstructure:"-"`
 
 	// KeyManager for handling API keys
 	keyManager *key.KeyManager
@@ -72,6 +83,19 @@ var (
 	// once ensures the singleton is initialized only once
 	once sync.Once
 )
+
+// Global package variable to store the list model provider
+var listModelProvider string
+
+// SetListModelProvider sets the provider to filter models for list-models
+func (c *Config) SetListModelProvider(provider string) {
+	listModelProvider = strings.ToLower(provider)
+}
+
+// GetListModelProvider returns the provider for filtering models
+func (c *Config) GetListModelProvider() string {
+	return listModelProvider
+}
 
 // GetInstance returns the singleton instance of Config
 func GetInstance() *Config {
@@ -159,6 +183,10 @@ func (c *Config) SaveConfig() error {
 	c.v.Set("system_prompt_path", c.SystemPromptPath)
 	c.v.Set("user_prompt_path", c.UserPromptPath)
 	
+	// Provider-specific persistent settings
+	c.v.Set("provider", c.Provider)
+	c.v.Set("provider_models", c.ProviderModels)
+	
 	// Note: We no longer persist JiraPrefix as it will be hardcoded in the application
 	
 	// Note: We intentionally don't persist these transaction-specific parameters:
@@ -188,9 +216,22 @@ func (c *Config) setDefaults() {
 	c.v.SetDefault("verbosity", Silent)
 	c.v.SetDefault("context_lines", 3)
 	c.v.SetDefault("remember_flags", false)
-	c.v.SetDefault("model_name", "claude-3-haiku-20240307")
+	c.v.SetDefault("model_name", "claude-3-haiku-20240307") // Legacy default model
 	c.v.SetDefault("system_prompt_path", "")
 	c.v.SetDefault("user_prompt_path", "")
+	
+	// Provider configuration defaults
+	c.v.SetDefault("provider", "anthropic") // Default to Anthropic for backward compatibility
+	c.v.SetDefault("provider_models", map[string]string{
+		"anthropic": "claude-3-haiku-20240307",
+		"openai":    "gpt-4o",
+		"gemini":    "gemini-1.5-pro",
+	})
+	
+	// Initialize runtime maps
+	if c.ProviderKeys == nil {
+		c.ProviderKeys = make(map[string]string)
+	}
 	
 	// Note: JiraPrefix is no longer configurable, it's hardcoded in pkg/git/jira.go
 }
@@ -300,6 +341,26 @@ func (c *Config) GetVerbosity() VerbosityLevel {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	return c.Verbosity
+}
+
+// GetProvider returns the current LLM provider
+func (c *Config) GetProvider() string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.Provider
+}
+
+// GetProviderModels returns the map of provider models
+func (c *Config) GetProviderModels() map[string]string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	
+	// Create a copy to prevent direct modification
+	modelsCopy := make(map[string]string)
+	for k, v := range c.ProviderModels {
+		modelsCopy[k] = v
+	}
+	return modelsCopy
 }
 
 // SetVerbosity sets the verbosity level
@@ -417,6 +478,7 @@ func (c *Config) ParseCommandLineArgs(args []string) ([]string, error) {
 		"-d": true, "--jira-desc": true,
 		"-c": true, "--context": true,
 		"-m": true, "--model": true,
+		"-p": true, "--provider": true, // Select provider
 		"--system-prompt": true,
 		"--user-prompt": true,
 	}
@@ -448,6 +510,7 @@ func (c *Config) ParseCommandLineArgs(args []string) ([]string, error) {
 				c.ContextLines = -1 // Signal for maximum context
 			case "--remember":
 				c.RememberFlags = true
+
 			}
 			continue
 		}
@@ -457,7 +520,15 @@ func (c *Config) ParseCommandLineArgs(args []string) ([]string, error) {
 			// Set appropriate value
 			switch arg {
 			case "-k", "--key":
+				// Store key in both legacy field and provider-specific map
 				c.APIKey = args[i+1]
+				if c.Provider != "" {
+					// Also store in provider-specific map
+					if c.ProviderKeys == nil {
+						c.ProviderKeys = make(map[string]string)
+					}
+					c.ProviderKeys[c.Provider] = args[i+1]
+				}
 			case "-j", "--jira":
 				c.JiraID = args[i+1]
 			case "-d", "--jira-desc":
@@ -466,7 +537,17 @@ func (c *Config) ParseCommandLineArgs(args []string) ([]string, error) {
 				// Try to parse context lines as an integer
 				fmt.Sscanf(args[i+1], "%d", &c.ContextLines)
 			case "-m", "--model":
+				// Store model in both legacy field and provider-specific map
 				c.ModelName = args[i+1]
+				// If provider is set, also store in provider-specific map
+				if c.Provider != "" {
+					if c.ProviderModels == nil {
+						c.ProviderModels = make(map[string]string)
+					}
+					c.ProviderModels[c.Provider] = args[i+1]
+				}
+			case "-p", "--provider":
+				c.Provider = args[i+1]
 			case "--system-prompt":
 				c.SystemPromptPath = args[i+1]
 			case "--user-prompt":

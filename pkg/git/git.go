@@ -11,6 +11,8 @@ type GitDiff struct {
 	Branch          string
 	JiraID          string
 	JiraDescription string
+	SystemPrompt    string // Prompt for LLM system context
+	UserPrompt      string // Template for user prompt
 }
 
 // GetGitDiff retrieves information about staged changes

@@ -1,10 +1,11 @@
 # AI Commit Message Generator
 
-A tool that uses Claude AI to automatically generate high-quality git commit messages based on your staged changes.
+A tool that uses AI to automatically generate high-quality git commit messages based on your staged changes. Supports multiple LLM providers including Anthropic's Claude, OpenAI's GPT models, and Google's Gemini.
 
 ## Features
 
-- 🤖 Uses Claude AI to analyze your code changes and generate meaningful commit messages
+- 🤖 Uses AI to analyze your code changes and generate meaningful commit messages
+- 🧠 Supports multiple LLM providers: Anthropic (Claude), OpenAI (GPT), and Google (Gemini)
 - 📝 Follows best practices for commit messages (conventional commits, imperative mood)
 - 🚀 No dependencies - single binary distribution
 - 🔐 Securely stores API key in your system's credential manager (macOS Keychain or Windows Credential Manager)
@@ -26,9 +27,32 @@ cd ai-commit-msg
 ./build.sh
 ```
 
+### Version Management
+
+The project uses a `VERSION` file to track the current version of the tool:
+
+- The version is automatically read from the `VERSION` file during build
+- To update the version, edit the `VERSION` file 
+- Example version update:
+  ```bash
+  echo "1.0.0" > VERSION  # Update to version 1.0.0
+  ./build.sh             # Build with the new version
+  ```
+
+You can also override the version temporarily during build:
+```bash
+# Build with a specific version without modifying the VERSION file
+./build.sh 1.2.3
+```
+
+When releasing a new version:
+1. Update the `VERSION` file
+2. Create a git tag matching the version
+3. Build and distribute the new binary
+
 ## API Key Setup
 
-You'll need an Anthropic API key to use this tool. The setup process is simple:
+You'll need an API key from one of the supported providers (Anthropic, OpenAI, or Gemini). The setup process is simple:
 
 ### 1. First-time setup (recommended)
 
@@ -43,13 +67,27 @@ The tool will prompt you for your API key (input will be hidden) and offer to st
 ### 2. Store directly in credential manager
 
 ```bash
-./ai-commit-msg --store-key --key your-api-key-here
+# For Anthropic (default)
+./ai-commit-msg --store-key --key your-anthropic-key-here
+
+# For OpenAI
+./ai-commit-msg --provider openai --store-key --key your-openai-key-here
+
+# For Gemini
+./ai-commit-msg --provider gemini --store-key --key your-gemini-key-here
 ```
 
 ### 3. Set as environment variable
 
 ```bash
-export ANTHROPIC_API_KEY="your-api-key-here"
+# For Anthropic (default)
+export ANTHROPIC_API_KEY="your-anthropic-key-here"
+
+# For OpenAI
+export OPENAI_API_KEY="your-openai-key-here"
+
+# For Gemini
+export GEMINI_API_KEY="your-gemini-key-here"
 ```
 
 ## Usage
@@ -76,7 +114,10 @@ export ANTHROPIC_API_KEY="your-api-key-here"
 -c, --context N         Number of context lines to include in the diff (default: 3)
 -cc                     Include more context lines (10)
 -ccc                    Include maximum context (entire file)
--m, --model MODEL       Specify Claude model to use (default: claude-3-haiku-20240307)
+-p, --provider NAME     Specify LLM provider to use (anthropic, openai, gemini) (default: anthropic)
+-m, --model MODEL       Specify model to use (provider-specific)
+--list-providers        List available providers
+--list-models           List available models for selected provider
 --system-prompt PATH    Specify a custom system prompt file path
 --user-prompt PATH      Specify a custom user prompt file path
 --remember              Remember command-line options in config for future use
@@ -84,6 +125,37 @@ export ANTHROPIC_API_KEY="your-api-key-here"
 
 Subcommands:
 init-prompts           Initialize custom prompt files in your config directory
+show-config           Display the current configuration
+list-providers        List all supported AI providers
+list-models          List available models (optionally for a specific provider)
+
+Subcommand Details:
+- `list-providers`: 
+  Shows all supported AI providers for generating commit messages
+  - Usage: `ai-commit-msg list-providers`
+  
+- `list-models`:
+  Lists available models for all providers or for a specific provider
+  - List models for all providers: `ai-commit-msg list-models`
+  - List models for a specific provider: `ai-commit-msg list-models anthropic`
+  
+- `show-config`:
+  Displays the current configuration settings, including:
+  - Configuration directory
+  - Current provider and model
+  - Context lines
+  - Verbosity level
+  
+- `init-prompts`:
+  Initializes custom prompt files in your configuration directory
+  - Usage: `ai-commit-msg init-prompts`
+
+Examples:
+  ai-commit-msg list-providers      # List all available providers
+  ai-commit-msg list-models         # List models for all providers
+  ai-commit-msg list-models anthropic  # List models only for Anthropic
+  ai-commit-msg show-config         # Show current configuration
+  ai-commit-msg init-prompts        # Initialize custom prompt files details and settings
 ```
 
 ### Context Control
@@ -154,7 +226,8 @@ Environment variables use the prefix `AI_COMMIT_`:
 ```bash
 export AI_COMMIT_VERBOSITY=2       # Set verbosity level
 export AI_COMMIT_CONTEXT_LINES=5   # Set context lines
-export AI_COMMIT_MODEL_NAME=claude-3-opus-20240229  # Set Claude model
+export AI_COMMIT_PROVIDER=openai   # Set provider (anthropic, openai, gemini)
+export AI_COMMIT_MODEL_NAME=gpt-4  # Set model name
 export AI_COMMIT_SYSTEM_PROMPT_PATH="/path/to/system_prompt.txt"  # Custom system prompt
 export AI_COMMIT_USER_PROMPT_PATH="/path/to/user_prompt.txt"      # Custom user prompt
 ```
@@ -200,9 +273,24 @@ Store API key in credential manager:
 ai-commit-msg --store-key --key sk_ant_your_key_here
 ```
 
-Use a different Claude model:
+Select a different AI provider:
 ```bash
-ai-commit-msg --model claude-3-opus-20240229
+ai-commit-msg --provider openai     # Use OpenAI (GPT) models
+ai-commit-msg --provider gemini     # Use Google's Gemini models
+ai-commit-msg --provider anthropic  # Use Anthropic's Claude models (default)
+```
+
+Use different models:
+```bash
+ai-commit-msg --provider anthropic --model claude-3-opus-20240229  # Use Claude Opus
+ai-commit-msg --provider openai --model gpt-4                      # Use GPT-4
+ai-commit-msg --provider gemini --model gemini-1.5-pro             # Use Gemini Pro
+```
+
+List available providers and models:
+```bash
+ai-commit-msg --list-providers      # List all supported providers
+ai-commit-msg --list-models         # List all available models for each provider
 ```
 
 Initialize custom prompt files:
@@ -220,6 +308,16 @@ Remember settings for future use:
 ai-commit-msg -cc --model claude-3-opus-20240229 --remember
 ```
 
+View current configuration:
+```bash
+ai-commit-msg show-config    # Display the current configuration details
+```
+
+Display version:
+```bash
+ai-commit-msg --version     # Show the tool's version information
+```
+
 ### Git alias (optional)
 
 You can create a git alias for easier access:
@@ -231,6 +329,81 @@ git config --global alias.claude '!ai-commit-msg'
 Then use:
 ```bash
 git claude
+```
+
+## Multi-Provider Support
+
+The tool now supports multiple Large Language Model (LLM) providers:
+
+### Supported Providers
+
+- **Anthropic (Claude)**: The original provider, offering Claude models (default)
+- **OpenAI**: Support for GPT models, including GPT-4 and GPT-3.5 Turbo
+- **Gemini**: Support for Google's Gemini models
+
+### Provider Selection
+
+You can select the provider to use with the `--provider` flag:
+
+```bash
+ai-commit-msg --provider anthropic  # Use Anthropic Claude (default)
+ai-commit-msg --provider openai     # Use OpenAI GPT
+ai-commit-msg --provider gemini     # Use Google Gemini
+```
+
+### Provider-Specific Models
+
+Each provider has its own set of available models. You can list them with:
+
+```bash
+ai-commit-msg --list-models
+```
+
+And select a specific model with:
+
+```bash
+ai-commit-msg --provider openai --model gpt-4
+```
+
+### API Keys
+
+Each provider requires its own API key. You can use environment variables:
+
+```bash
+export ANTHROPIC_API_KEY="your-anthropic-key"
+export OPENAI_API_KEY="your-openai-key"
+export GEMINI_API_KEY="your-gemini-key"
+```
+
+Or store them securely in your system's credential manager:
+
+```bash
+ai-commit-msg --provider anthropic --store-key --key your-anthropic-key
+ai-commit-msg --provider openai --store-key --key your-openai-key
+ai-commit-msg --provider gemini --store-key --key your-gemini-key
+```
+
+### Provider-Specific Prompts
+
+You can customize prompts for each provider in the respective directories:
+
+```
+~/.config/ai-commit-msg/prompts/
+  ├── anthropic/
+  │    ├── system_prompt.txt
+  │    └── user_prompt.txt
+  ├── openai/
+  │    ├── system_prompt.txt
+  │    └── user_prompt.txt
+  └── gemini/
+       ├── system_prompt.txt
+       └── user_prompt.txt
+```
+
+Initialize these directories with:
+
+```bash
+ai-commit-msg init-prompts
 ```
 
 ## Cross-Platform Support
@@ -294,8 +467,14 @@ The tool uses Claude AI with carefully crafted prompts to generate commit messag
 
 #### Available prompt files:
 
-- `system_prompt.txt` - Contains instructions for the AI about commit message style and formatting
-- `user_prompt.txt` - Template used to format the request to the AI with your git diff information
+Provider-specific prompts are organized in subdirectories:
+
+- `anthropic/system_prompt.txt` - Instructions for Claude about commit message style and formatting
+- `anthropic/user_prompt.txt` - Template for Claude with git diff information
+- `openai/system_prompt.txt` - Instructions for GPT models
+- `openai/user_prompt.txt` - Template for GPT models
+- `gemini/system_prompt.txt` - Instructions for Gemini models
+- `gemini/user_prompt.txt` - Template for Gemini models
 
 #### Customizing without rebuilding:
 
@@ -305,7 +484,7 @@ You can customize the prompts without rebuilding the tool using one of these met
    ```bash
    ai-commit-msg init-prompts
    ```
-   This will copy the default prompt files to your config directory (`~/.config/ai-commit-msg/prompts/` or equivalent). You can then edit these files to customize them.
+   This will initialize provider-specific prompt directories in your config directory (`~/.config/ai-commit-msg/prompts/[provider]/` or equivalent). You can then edit these files to customize prompts for each provider.
 
 2. **Specify custom prompt file paths**:
    ```bash
@@ -328,8 +507,9 @@ You can customize the prompts without rebuilding the tool using one of these met
 The tool follows this order of precedence when looking for prompt files:
 1. Custom paths specified via command line flags
 2. Custom paths specified in the config file or environment variables
-3. Default files in the user's config directory (`~/.config/ai-commit-msg/prompts/`)
-4. Default files in the tool's installation directory
+3. Provider-specific files in the user's config directory (`~/.config/ai-commit-msg/prompts/[provider]/`)
+4. Default provider files in the tool's installation directory (`prompts/[provider]/`)
+5. Legacy default files in the tool's installation directory
 
 #### When to customize:
 

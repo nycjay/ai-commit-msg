@@ -1,0 +1,25 @@
+TASK: CREATE A GIT COMMIT MESSAGE
+
+BRANCH: %s
+
+FILES CHANGED:
+%s
+
+DIFF:
+%s
+
+JIRA ID: %s
+
+JIRA DESCRIPTION: %s
+
+COMMIT MESSAGE REQUIREMENTS:
+1. First line format: "<type>(<component>): <Jira ID> <short description>"
+2. First line must include the Jira ID specified above
+3. If no Jira ID is provided, use a placeholder (GTBUG-??? or GTN-???)
+4. First line must be under 50 characters
+5. Add a blank line after the first line
+6. Add a detailed description explaining WHY the change was made
+7. Use bullet points for complex changes
+8. Use the appropriate component name based on the code being changed
+
+RESPOND ONLY WITH THE COMMIT MESSAGE, NO ADDITIONAL TEXT.

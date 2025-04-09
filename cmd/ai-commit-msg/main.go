@@ -12,14 +12,24 @@ import (
 	"strings"
 	"time"
 
+	"github.com/nycjay/ai-commit-msg/pkg/ai"
 	"github.com/nycjay/ai-commit-msg/pkg/config"
+	"github.com/nycjay/ai-commit-msg/pkg/git"
 	"github.com/nycjay/ai-commit-msg/pkg/key"
 	"golang.org/x/term"
 )
 
+var version string
+
+func init() {
+	// If version is not set during build, use a default
+	if version == "" {
+		version = "0.1.0"
+	}
+}
+
 const (
 	anthropicAPI = "https://api.anthropic.com/v1/messages"
-	version      = "0.1.0"
 )
 
 type Request struct {
@@ -88,14 +98,30 @@ func printHelp() {
 	fmt.Println("  -c, --context N       Number of context lines to include in the diff (default: 3)")
 	fmt.Println("  -cc                   Include more context lines (10)")
 	fmt.Println("  -ccc                  Include maximum context (entire file)")
-	fmt.Println("  -m, --model MODEL     Specify Claude model to use (default: claude-3-haiku-20240307)")
+	fmt.Println("  -p, --provider NAME   Specify LLM provider to use (anthropic, openai, gemini) (default: anthropic)")
+	fmt.Println("  -m, --model MODEL     Specify model to use (provider-specific)")
+
 	fmt.Println("  --system-prompt PATH  Specify a custom system prompt file path")
 	fmt.Println("  --user-prompt PATH    Specify a custom user prompt file path")
 	fmt.Println("  --remember            Remember command-line options in config for future use")
 	fmt.Println("  -h, --help            Display this help information")
+	fmt.Println("  --version             Display version information")
 	fmt.Println("")
 	fmt.Println("SUBCOMMANDS:")
 	fmt.Println("  init-prompts           Initialize custom prompt files in your config directory")
+	fmt.Println("  show-config            Display the current configuration")
+	fmt.Println("  list-providers        List all supported AI providers")
+	fmt.Println("  list-models           List available models for providers")
+	fmt.Println("")
+	fmt.Println("SUBCOMMAND EXAMPLES:")
+	fmt.Println("  # List all providers")
+	fmt.Println("  ai-commit-msg list-providers")
+	fmt.Println("")
+	fmt.Println("  # List models for all providers")
+	fmt.Println("  ai-commit-msg list-models")
+	fmt.Println("")
+	fmt.Println("  # List models for a specific provider")
+	fmt.Println("  ai-commit-msg list-models anthropic")
 	fmt.Println("")
 	fmt.Println("CONFIGURATION:")
 	fmt.Println("  The tool stores configuration in:")
@@ -127,15 +153,21 @@ func printHelp() {
 	fmt.Println("  You can also specify custom prompt file paths in the config file or command line")
 	fmt.Println("")
 	
-	fmt.Println("SETUP & API KEY:")
+	fmt.Println("SETUP & API KEYS:")
 	fmt.Println("  First-time users:")
 	fmt.Println("    1. Run 'ai-commit-msg' without any options")
-	fmt.Println("    2. When prompted, enter your Anthropic API key (input will be hidden)")
+	fmt.Println("    2. When prompted, enter your API key for the selected provider (input will be hidden)")
 	fmt.Println("    3. Choose to save it securely in your system credential manager")
 	fmt.Println("")
-	fmt.Println("  Alternative setup methods:")
-	fmt.Println("    - Store directly in credential manager: ai-commit-msg --store-key --key YOUR-API-KEY")
-	fmt.Println("    - Environment variable:                 export ANTHROPIC_API_KEY=YOUR-API-KEY")
+	fmt.Println("  Multiple providers:")
+	fmt.Println("    - Anthropic (Claude): ai-commit-msg --provider anthropic --store-key --key YOUR-ANTHROPIC-KEY")
+	fmt.Println("    - OpenAI (GPT):       ai-commit-msg --provider openai --store-key --key YOUR-OPENAI-KEY")
+	fmt.Println("    - Gemini:             ai-commit-msg --provider gemini --store-key --key YOUR-GEMINI-KEY")
+	fmt.Println("")
+	fmt.Println("  Environment variables:")
+	fmt.Println("    - Anthropic: export ANTHROPIC_API_KEY=YOUR-ANTHROPIC-KEY")
+	fmt.Println("    - OpenAI:    export OPENAI_API_KEY=YOUR-OPENAI-KEY")
+	fmt.Println("    - Gemini:    export GEMINI_API_KEY=YOUR-GEMINI-KEY")
 	fmt.Println("")
 
 	keyManager := cfg.GetKeyManager()
@@ -173,9 +205,17 @@ func printHelp() {
 	fmt.Println("  # Remember settings for future use:")
 	fmt.Println("  ai-commit-msg -cc --remember")
 	fmt.Println("")
-	fmt.Println("  # Use a different Claude model:")
-	fmt.Println("  ai-commit-msg --model claude-3-opus-20240229")
+	fmt.Println("  # Use a different provider:")
+	fmt.Println("  ai-commit-msg --provider openai     # Use OpenAI models")
+	fmt.Println("  ai-commit-msg --provider gemini     # Use Google's Gemini models")
+	fmt.Println("  ai-commit-msg --provider anthropic  # Use Anthropic's Claude models (default)")
 	fmt.Println("")
+	fmt.Println("  # Use different models:")
+	fmt.Println("  ai-commit-msg --provider anthropic --model claude-3-opus-20240229")
+	fmt.Println("  ai-commit-msg --provider openai --model gpt-4")
+	fmt.Println("  ai-commit-msg --provider gemini --model gemini-1.5-pro")
+	fmt.Println("")
+
 	fmt.Println("  # Initialize custom prompt files in your config directory:")
 	fmt.Println("  ai-commit-msg init-prompts")
 	fmt.Println("")
@@ -263,18 +303,41 @@ func readPromptFile(filename string) (string, error) {
 	return string(content), nil
 }
 
-func parseArgs() (bool, bool, []string) {
+func parseArgs() (bool, bool, bool, bool, bool, bool, []string) {
 	// Variables to store the extracted values
 	var unknownFlags []string
 	var isInitPrompts bool
+	var isShowConfig bool
+	var isListProviders bool
+	var isListModels bool
+	var isVersion bool
+
+	// First, check for version flag
+	for _, arg := range os.Args[1:] {
+		if arg == "--version" {
+			isVersion = true
+			// Skip further parsing for version command
+			return false, false, false, false, false, true, unknownFlags
+		}
+	}
 
 	// First, check for help flag (simple case, just check for -h or --help)
-	// Also check for init-prompts subcommand
-	for _, arg := range os.Args[1:] {
+	// Also check for various subcommands
+	for i, arg := range os.Args[1:] {
 		if arg == "-h" || arg == "--help" {
-			return true, false, unknownFlags
+			return true, false, false, false, false, false, unknownFlags
 		} else if arg == "init-prompts" {
 			isInitPrompts = true
+		} else if arg == "show-config" {
+			isShowConfig = true
+		} else if arg == "list-providers" {
+			isListProviders = true
+		} else if arg == "list-models" {
+			// Check if there's a provider specified
+			if i+2 < len(os.Args) {
+				cfg.SetListModelProvider(os.Args[i+2])
+			}
+			isListModels = true
 		}
 	}
 
@@ -284,7 +347,152 @@ func parseArgs() (bool, bool, []string) {
 		fmt.Printf("Error parsing command line arguments: %v\n", err)
 	}
 
-	return false, isInitPrompts, unknownFlags
+	return false, isInitPrompts, isShowConfig, isListProviders, isListModels, isVersion, unknownFlags
+}
+
+// printProviderInfo prints details about available providers and models
+func printProviderInfo(listProvidersOnly bool, specificProvider string) {
+	fmt.Println("AI Commit Message Generator - Provider Information")
+	fmt.Println(strings.Repeat("=", 50))
+
+	// Create providers with their full details
+	providerDetails := map[string]string{
+		"anthropic": "Anthropic Claude",
+		"openai":    "OpenAI",
+		"gemini":    "Google Gemini",
+	}
+
+	if listProvidersOnly || specificProvider == "" {
+		fmt.Println("Supported Providers:")
+		for provider, description := range providerDetails {
+			fmt.Printf("  - %s (%s)\n", provider, description)
+		}
+	}
+
+	// If not just listing providers, show models
+	if !listProvidersOnly {
+		// Use AI package to get providers
+		providers := map[string]ai.Provider{
+			"anthropic": &ai.AnthropicProvider{},
+			"openai":    &ai.OpenAIProvider{},
+			"gemini":    &ai.GeminiProvider{},
+		}
+
+		fmt.Println("\nAvailable Models:")
+		
+		// If a specific provider is given, only show its models
+		if specificProvider != "" {
+			provider, ok := providers[specificProvider]
+			if !ok {
+				fmt.Printf("Error: Provider '%s' not found.\n", specificProvider)
+				return
+			}
+
+			availableModels := provider.GetAvailableModels()
+			defaultModel := provider.GetDefaultModel()
+
+			fmt.Printf("  %s Models:\n", strings.Title(specificProvider))
+			for _, model := range availableModels {
+				if model == defaultModel {
+					fmt.Printf("    - %s (default)\n", model)
+				} else {
+					fmt.Printf("    - %s\n", model)
+				}
+			}
+		} else {
+			// Show models for all providers
+			for provider, providerObj := range providers {
+				availableModels := providerObj.GetAvailableModels()
+				defaultModel := providerObj.GetDefaultModel()
+				
+				fmt.Printf("  %s Models:\n", strings.Title(provider))
+				for _, model := range availableModels {
+					if model == defaultModel {
+						fmt.Printf("    - %s (default)\n", model)
+					} else {
+						fmt.Printf("    - %s\n", model)
+					}
+				}
+				fmt.Println()
+			}
+		}
+	}
+
+	fmt.Println("Notes:")
+	fmt.Println("  - Run 'ai-commit-msg list-models <provider>' to see models for a specific provider")
+	fmt.Println("  - An API key is required to use models from a provider")
+}
+
+// printConfigDetails prints the current configuration details
+func printConfigDetails() {
+	fmt.Println("AI Commit Message Generator - Configuration")
+	fmt.Println(strings.Repeat("=", 50))
+	
+	// Config Directory
+	configDir, err := cfg.GetConfigDirectory()
+	if err == nil {
+		fmt.Printf("Config Directory: %s\n", configDir)
+	}
+
+	// Verbosity
+	verbosityNames := map[config.VerbosityLevel]string{
+		config.Silent:       "Silent",
+		config.Normal:       "Normal",
+		config.Verbose:      "Verbose",
+		config.MoreVerbose:  "More Verbose",
+		config.Debug:        "Debug",
+	}
+	fmt.Printf("Verbosity: %s (Level %d)\n", verbosityNames[cfg.GetVerbosity()], cfg.GetVerbosity())
+
+	// Context Lines
+	fmt.Printf("Context Lines: %d\n", cfg.GetContextLines())
+
+	// Provider Configuration
+	fmt.Printf("Current Provider: %s\n", cfg.GetProvider())
+	
+	// Available Models
+	fmt.Println("\nAvailable Provider Models:")
+	providerModels := cfg.GetProviderModels()
+	for provider, model := range providerModels {
+		fmt.Printf("  %s: %s\n", provider, model)
+	}
+
+	// Current Model
+	fmt.Printf("\nCurrent Model: %s\n", cfg.GetModelName())
+
+	// System and User Prompt Paths
+	systemPromptPath := cfg.GetSystemPromptPath()
+	userPromptPath := cfg.GetUserPromptPath()
+	
+	fmt.Println("\nCustom Prompt Paths:")
+	if systemPromptPath != "" {
+		fmt.Printf("  System Prompt: %s\n", systemPromptPath)
+	} else {
+		fmt.Println("  System Prompt: Default")
+	}
+	
+	if userPromptPath != "" {
+		fmt.Printf("  User Prompt: %s\n", userPromptPath)
+	} else {
+		fmt.Println("  User Prompt: Default")
+	}
+
+	// Flags
+	fmt.Println("\nFlags:")
+	fmt.Printf("  Remember Flags: %v\n", cfg.IsRememberFlagsEnabled())
+	
+	// Prompt Directory
+	promptDir, err := cfg.GetPromptDirectory()
+	if err == nil {
+		fmt.Printf("\nPrompt Directory: %s\n", promptDir)
+	}
+
+	// Keychain Information
+	keyManager := cfg.GetKeyManager()
+	fmt.Println("\nCredential Store:")
+	fmt.Printf("  Platform: %s\n", keyManager.GetPlatform())
+	fmt.Printf("  Credential Store: %s\n", keyManager.GetCredentialStoreName())
+	fmt.Println("\nNote: Sensitive API keys are not displayed for security reasons.")
 }
 
 // ensurePromptDirectoryExists makes sure the prompt directory exists
@@ -304,28 +512,40 @@ func ensurePromptDirectoryExists() error {
 
 // copyPromptFile copies a prompt file from the executable directory to the user's prompt directory
 // if it doesn't already exist in the user's prompt directory
-func copyPromptFile(filename string) error {
+func copyPromptFile(filename string, provider string) error {
 	// Check if the prompt directory exists
 	promptDir, err := cfg.GetPromptDirectory()
 	if err != nil {
 		return err
 	}
 
-	// Check if the file already exists in the user's prompt directory
-	destPath := filepath.Join(promptDir, filename)
+	// Create provider-specific prompt directory
+	providerDir := filepath.Join(promptDir, provider)
+	if err := os.MkdirAll(providerDir, 0755); err != nil {
+		return fmt.Errorf("failed to create provider prompt directory: %v", err)
+	}
+
+	// Check if the file already exists in the provider's prompt directory
+	destPath := filepath.Join(providerDir, filename)
 	if _, err := os.Stat(destPath); err == nil {
 		// File already exists, no need to copy
 		return nil
 	}
 
-	// Read the file from the executable directory
-	srcPath := filepath.Join(executableDir, "prompts", filename)
+	// Try reading the file from the provider's directory in executable directory first
+	srcPath := filepath.Join(executableDir, "prompts", provider, filename)
 	content, err := os.ReadFile(srcPath)
+	
+	// If not found in provider's directory, fall back to the root prompts directory
 	if err != nil {
-		return fmt.Errorf("failed to read source prompt file: %v", err)
+		srcPath = filepath.Join(executableDir, "prompts", filename)
+		content, err = os.ReadFile(srcPath)
+		if err != nil {
+			return fmt.Errorf("failed to read source prompt file: %v", err)
+		}
 	}
 
-	// Write the file to the user's prompt directory
+	// Write the file to the provider's prompt directory
 	if err := os.WriteFile(destPath, content, 0644); err != nil {
 		return fmt.Errorf("failed to write destination prompt file: %v", err)
 	}
@@ -335,6 +555,14 @@ func copyPromptFile(filename string) error {
 }
 
 func main() {
+	// Early version check before any other initialization
+	for _, arg := range os.Args[1:] {
+		if arg == "--version" {
+			fmt.Printf("AI Commit Message Generator version %s\n", version)
+			os.Exit(0)
+		}
+	}
+
 	// Get the executable directory
 	var err error
 	executableDir, err = findExecutableDir()
@@ -350,7 +578,7 @@ func main() {
 	}
 
 	// Parse command line arguments
-	isHelp, isInitPrompts, unknownFlags := parseArgs()
+	isHelp, isInitPrompts, isShowConfig, isListProviders, isListModels, _, unknownFlags := parseArgs()
 
 	// Handle unknown flags
 	if len(unknownFlags) > 0 {
@@ -364,11 +592,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	// If help flag is provided, show help and exit
-	if isHelp {
-		printHelp()
-		os.Exit(0)
-	}
+	// Help flag is now handled further down in the code, after config initialization
 	
 	// Handle init-prompts subcommand
 	if isInitPrompts {
@@ -380,28 +604,87 @@ func main() {
 			os.Exit(1)
 		}
 		
-		// Copy prompt files
+		// Get base prompt directory
 		promptDir, _ := cfg.GetPromptDirectory()
 		fmt.Printf("Prompt directory: %s\n", promptDir)
 		
-		// Copy system prompt
-		if err := copyPromptFile("system_prompt.txt"); err != nil {
-			fmt.Printf("Error copying system prompt: %v\n", err)
-		} else {
-			fmt.Println("Successfully copied system_prompt.txt")
+		// Define the providers to initialize
+		providers := []string{"anthropic", "openai", "gemini"}
+		
+		// Initialize prompts for each provider
+		for _, provider := range providers {
+			fmt.Printf("\nInitializing prompts for %s provider:\n", provider)
+			
+			// Create provider directory
+			providerDir := filepath.Join(promptDir, provider)
+			if err := os.MkdirAll(providerDir, 0755); err != nil {
+				fmt.Printf("Error: Failed to create directory for %s: %v\n", provider, err)
+				continue
+			}
+			
+			// Copy system prompt
+			if err := copyPromptFile("system_prompt.txt", provider); err != nil {
+				fmt.Printf("Error copying system prompt for %s: %v\n", provider, err)
+			} else {
+				fmt.Printf("Successfully copied system_prompt.txt for %s\n", provider)
+			}
+			
+			// Copy user prompt
+			if err := copyPromptFile("user_prompt.txt", provider); err != nil {
+				fmt.Printf("Error copying user prompt for %s: %v\n", provider, err)
+			} else {
+				fmt.Printf("Successfully copied user_prompt.txt for %s\n", provider)
+			}
 		}
 		
-		// Copy user prompt
-		if err := copyPromptFile("user_prompt.txt"); err != nil {
-			fmt.Printf("Error copying user prompt: %v\n", err)
-		} else {
-			fmt.Println("Successfully copied user_prompt.txt")
+		fmt.Println("\nInitialization complete. You can now edit these files to customize your prompts for each provider.")
+		fmt.Println("Provider-specific prompt directories:")
+		for _, provider := range providers {
+			fmt.Printf("  - %s: %s/%s/\n", provider, promptDir, provider)
 		}
-		
-		fmt.Println("Initialization complete. You can now edit these files to customize your prompts.")
 		os.Exit(0)
 	}
 
+	// Handle show-config subcommand
+	if isShowConfig {
+		// Load config to ensure it's up-to-date before showing
+		if err := cfg.LoadConfig(); err != nil {
+			fmt.Printf("Warning: Error loading config: %v\n", err)
+		}
+		
+		// Print configuration details
+		printConfigDetails()
+		os.Exit(0)
+	}
+
+	// Handle list-providers subcommand
+	if isListProviders {
+		// Print provider information (just providers)
+		printProviderInfo(true, "")
+		os.Exit(0)
+	}
+
+	// Handle list-models subcommand
+	if isListModels {
+		// Get the specific provider (if set)
+		specificProvider := cfg.GetListModelProvider()
+		
+		// Print model information for the specified provider (or all providers)
+		printProviderInfo(false, specificProvider)
+		os.Exit(0)
+	}
+
+	// Version handling has been moved to an earlier stage in main()
+
+	// Set the executable directory in config for prompt loading
+	cfg.SetExecutableDir(executableDir)
+	
+	// Handle help, list-providers and list-models right away - these don't need git or staged changes
+	if isHelp {
+		printHelp()
+		os.Exit(0)
+	}
+	
 	// Save config if remember flag is enabled
 	if cfg.IsRememberFlagsEnabled() {
 		if err := cfg.SaveConfig(); err != nil {
@@ -421,6 +704,7 @@ func main() {
 		cfg.GetKeyManager().GetCredentialStoreName())
 	log(config.MoreVerbose, "Verbosity level: %d", cfg.GetVerbosity())
 	log(config.Verbose, "Context lines: %d", cfg.GetContextLines())
+	log(config.Verbose, "Using provider: %s", cfg.GetProvider())
 
 	// Check Jira details
 	jiraID := cfg.GetJiraID()
@@ -519,17 +803,129 @@ func main() {
 		logVerbose("API key provided via config, environment or command line")
 	}
 
-	// Get git diff information
-	logVerbose("Getting git diff information with context lines: %d", cfg.GetContextLines())
-	diffInfo, err := getGitDiff(cfg.GetJiraID(), cfg.GetJiraDesc(), cfg.GetContextLines())
-	if err != nil {
-		fmt.Printf("Error getting git diff: %v\n", err)
-		os.Exit(1)
-	}
+	// Skip git operations for commands that don't need them
+	requiresGit := !isListProviders && !isListModels && !isHelp && !isInitPrompts
+	
+	// Only proceed with git operations if we need them
+	var diffInfo GitDiff
+	if requiresGit {
+		// Get git diff information
+		logVerbose("Getting git diff information with context lines: %d", cfg.GetContextLines())
+		var err error
+		diffInfo, err = getGitDiff(cfg.GetJiraID(), cfg.GetJiraDesc(), cfg.GetContextLines())
+		if err != nil {
+			// Only show error for git-related issues if not storing keys
+			// This allows "--store-key" to work outside of a git repository
+			if !cfg.IsStoreKeyEnabled() {
+				fmt.Printf("Error getting git diff: %v\n", err)
+				os.Exit(1)
+			}
+		}
 
-	if len(diffInfo.StagedFiles) == 0 || (len(diffInfo.StagedFiles) == 1 && diffInfo.StagedFiles[0] == "") {
-		fmt.Println("No staged changes found. Stage your changes using 'git add'.")
-		os.Exit(1)
+		// Only check for staged files if we're actually generating a commit message
+		// and not just storing an API key
+		if !cfg.IsStoreKeyEnabled() && 
+		   (len(diffInfo.StagedFiles) == 0 || (len(diffInfo.StagedFiles) == 1 && diffInfo.StagedFiles[0] == "")) {
+			fmt.Println("No staged changes found. Stage your changes using 'git add'.")
+			os.Exit(1)
+		}
+		
+		// Generate commit message
+		providerName := cfg.GetProvider()
+		fmt.Printf("Generating commit message with %s...\n", strings.Title(providerName))
+		startTime := time.Now()
+		
+		// Use the multi-provider implementation if a provider is specified
+		var message string
+		
+		if providerName != "" && providerName != "anthropic" {
+			// Convert GitDiff to git.GitDiff for the multi-provider implementation
+			gitDiffInfo := git.GitDiff{
+				StagedFiles:     diffInfo.StagedFiles,
+				Diff:            diffInfo.Diff,
+				Branch:          diffInfo.Branch,
+				JiraID:          diffInfo.JiraID,
+				JiraDescription: diffInfo.JiraDescription,
+			}
+			
+			// Read prompts for the multi-provider implementation
+			systemPrompt, promptErr := readPromptFile("system_prompt.txt")
+			if promptErr != nil {
+				fmt.Printf("Error reading system prompt: %v\n", promptErr)
+				os.Exit(1)
+			}
+			
+			userPrompt, promptErr := readPromptFile("user_prompt.txt")
+			if promptErr != nil {
+				fmt.Printf("Error reading user prompt: %v\n", promptErr)
+				os.Exit(1)
+			}
+			
+			gitDiffInfo.SystemPrompt = systemPrompt
+			gitDiffInfo.UserPrompt = userPrompt
+			
+			// Use the new multi-provider implementation
+			message, err = generateCommitMessageMultiProvider(gitDiffInfo)
+		} else {
+			// Use the original implementation for backward compatibility
+			message, err = generateCommitMessage(cfg.GetAPIKey(), cfg.GetModelName(), diffInfo)
+		}
+		
+		if err != nil {
+			fmt.Printf("Error generating commit message: %v\n", err)
+			os.Exit(1)
+		}
+		logVerbose("Commit message generated in %.2f seconds", time.Since(startTime).Seconds())
+		
+		// Display the suggested commit message
+		fmt.Println("\n" + strings.Repeat("=", 50))
+		fmt.Println("Suggested commit message:")
+		fmt.Println(strings.Repeat("=", 50))
+		fmt.Println(message)
+		fmt.Println(strings.Repeat("=", 50))
+
+		// Handle the commit
+		if cfg.GetAutoCommit() {
+			logVerbose("Auto-commit enabled, committing changes...")
+			err = commitWithMessage(message)
+			if err != nil {
+				fmt.Printf("Error committing changes: %v\n", err)
+				os.Exit(1)
+			}
+		} else {
+			fmt.Print("Use this message? (y)es/(e)dit/(n)o: ")
+			var response string
+			fmt.Scanln(&response)
+			response = strings.ToLower(response)
+
+			if response == "y" || response == "yes" {
+				logVerbose("User selected 'yes', committing changes...")
+				err = commitWithMessage(message)
+				if err != nil {
+					fmt.Printf("Error committing changes: %v\n", err)
+					os.Exit(1)
+				}
+			} else if response == "e" || response == "edit" {
+				logVerbose("User selected 'edit', opening editor...")
+				editedMessage, err := editMessage(message)
+				if err != nil {
+					fmt.Printf("Error editing message: %v\n", err)
+					os.Exit(1)
+				}
+				if editedMessage != "" {
+					logVerbose("User provided edited message, committing changes...")
+					err = commitWithMessage(editedMessage)
+					if err != nil {
+						fmt.Printf("Error committing changes: %v\n", err)
+						os.Exit(1)
+					}
+				} else {
+					fmt.Println("Commit aborted.")
+				}
+			} else {
+				fmt.Println("Commit aborted.")
+			}
+		}
 	}
 
 	logVerbose("Found %d staged files in branch '%s'", len(diffInfo.StagedFiles), diffInfo.Branch)
@@ -540,9 +936,46 @@ func main() {
 	}
 
 	// Generate commit message
-	fmt.Println("Generating commit message with Claude AI...")
+	providerName := cfg.GetProvider()
+	fmt.Printf("Generating commit message with %s...\n", strings.Title(providerName))
 	startTime := time.Now()
-	message, err := generateCommitMessage(cfg.GetAPIKey(), cfg.GetModelName(), diffInfo)
+	
+	// Use the multi-provider implementation if a provider is specified
+	var message string
+	
+	if providerName != "" && providerName != "anthropic" {
+		// Convert GitDiff to git.GitDiff for the new multi-provider implementation
+		gitDiffInfo := git.GitDiff{
+			StagedFiles:      diffInfo.StagedFiles,
+			Diff:             diffInfo.Diff,
+			Branch:           diffInfo.Branch,
+			JiraID:           diffInfo.JiraID,
+			JiraDescription:  diffInfo.JiraDescription,
+		}
+		
+		// Read prompts here since they're not in the original struct
+		systemPrompt, promptErr := readPromptFile("system_prompt.txt")
+		if promptErr != nil {
+			fmt.Printf("Error reading system prompt: %v\n", promptErr)
+			os.Exit(1)
+		}
+		
+		userPrompt, promptErr := readPromptFile("user_prompt.txt")
+		if promptErr != nil {
+			fmt.Printf("Error reading user prompt: %v\n", promptErr)
+			os.Exit(1)
+		}
+		
+		gitDiffInfo.SystemPrompt = systemPrompt
+		gitDiffInfo.UserPrompt = userPrompt
+		
+		// Use the new multi-provider implementation
+		message, err = generateCommitMessageMultiProvider(gitDiffInfo)
+	} else {
+		// Use the original implementation for backward compatibility
+		message, err = generateCommitMessage(cfg.GetAPIKey(), cfg.GetModelName(), diffInfo)
+	}
+	
 	if err != nil {
 		fmt.Printf("Error generating commit message: %v\n", err)
 		os.Exit(1)
@@ -556,48 +989,8 @@ func main() {
 	fmt.Println(message)
 	fmt.Println(strings.Repeat("=", 50))
 
-	// Handle the commit
-	if cfg.GetAutoCommit() {
-		logVerbose("Auto-commit enabled, committing changes...")
-		err = commitWithMessage(message)
-		if err != nil {
-			fmt.Printf("Error committing changes: %v\n", err)
-			os.Exit(1)
-		}
-	} else {
-		fmt.Print("Use this message? (y)es/(e)dit/(n)o: ")
-		var response string
-		fmt.Scanln(&response)
-		response = strings.ToLower(response)
-
-		if response == "y" || response == "yes" {
-			logVerbose("User selected 'yes', committing changes...")
-			err = commitWithMessage(message)
-			if err != nil {
-				fmt.Printf("Error committing changes: %v\n", err)
-				os.Exit(1)
-			}
-		} else if response == "e" || response == "edit" {
-			logVerbose("User selected 'edit', opening editor...")
-			editedMessage, err := editMessage(message)
-			if err != nil {
-				fmt.Printf("Error editing message: %v\n", err)
-				os.Exit(1)
-			}
-			if editedMessage != "" {
-				logVerbose("User provided edited message, committing changes...")
-				err = commitWithMessage(editedMessage)
-				if err != nil {
-					fmt.Printf("Error committing changes: %v\n", err)
-					os.Exit(1)
-				}
-			} else {
-				fmt.Println("Commit aborted.")
-			}
-		} else {
-			fmt.Println("Commit aborted.")
-		}
-	}
+	// We've already handled the commit process in the requiresGit condition
+	// No more handling needed here
 }
 
 func getGitDiff(jiraID string, jiraDesc string, contextLines int) (GitDiff, error) {
