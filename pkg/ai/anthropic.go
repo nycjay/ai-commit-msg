@@ -83,7 +83,11 @@ func (p *AnthropicProvider) GenerateCommitMessage(apiKey string, modelName strin
 	req.Header.Set("x-api-key", apiKey)
 	req.Header.Set("anthropic-version", "2023-06-01")
 
+	// Use mock transport in tests, real client in production
 	client := &http.Client{Timeout: time.Second * 30}
+	if mockDoFunc != nil {
+		client.Transport = &MockTransport{}
+	}
 	resp, err := client.Do(req)
 	if err != nil {
 		return "", err

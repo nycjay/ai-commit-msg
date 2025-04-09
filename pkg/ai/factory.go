@@ -7,6 +7,10 @@ import (
 
 // NewProvider creates a provider based on the provider name
 func NewProvider(providerName string) (Provider, error) {
+	if providerName == "" {
+		return nil, fmt.Errorf("provider name cannot be empty")
+	}
+	
 	switch strings.ToLower(providerName) {
 	case string(ProviderAnthropic), "claude":
 		return NewAnthropicProvider(), nil
@@ -30,10 +34,14 @@ func GetAllProviders() []Provider {
 
 // GetProviderByName returns a provider by its name
 func GetProviderByName(name string) Provider {
+	// Return nil for unknown or empty provider names
+	if name == "" {
+		return nil
+	}
+	
 	provider, err := NewProvider(name)
 	if err != nil {
-		// Default to Anthropic if provider not found
-		return NewAnthropicProvider()
+		return nil
 	}
 	return provider
 }

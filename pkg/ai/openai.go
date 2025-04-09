@@ -85,7 +85,11 @@ func (p *OpenAIProvider) GenerateCommitMessage(apiKey string, modelName string, 
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+apiKey)
 
+	// Use mock transport in tests, real client in production
 	client := &http.Client{Timeout: time.Second * 30}
+	if mockDoFunc != nil {
+		client.Transport = &MockTransport{}
+	}
 	resp, err := client.Do(req)
 	if err != nil {
 		return "", err

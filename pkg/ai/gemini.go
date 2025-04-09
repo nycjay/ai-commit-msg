@@ -104,7 +104,11 @@ func (p *GeminiProvider) GenerateCommitMessage(apiKey string, modelName string, 
 	
 	req.Header.Set("Content-Type", "application/json")
 	
+	// Use mock transport in tests, real client in production
 	client := &http.Client{Timeout: time.Second * 30}
+	if mockDoFunc != nil {
+		client.Transport = &MockTransport{}
+	}
 	resp, err := client.Do(req)
 	if err != nil {
 		return "", err
@@ -131,8 +135,8 @@ func (p *GeminiProvider) GenerateCommitMessage(apiKey string, modelName string, 
 
 // ValidateAPIKey validates the Gemini API key format
 func (p *GeminiProvider) ValidateAPIKey(key string) bool {
-	// Gemini API keys are typically 39 characters long
-	return len(key) >= 30
+	// Gemini API keys can vary in length but are typically at least 20 characters
+	return len(key) >= 20
 }
 
 // GetName returns the provider name
