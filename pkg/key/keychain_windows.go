@@ -9,7 +9,20 @@ import (
 	"github.com/danieljoos/wincred"
 )
 
+// getFromWindowsCredentialManager is the platform-facing function for Windows credential access
+// This is used by the platform-neutral code
+func (k *KeyManager) getFromWindowsCredentialManager() (string, error) {
+	return k.windowsGetFromCredentialManager()
+}
+
+// storeInWindowsCredentialManager is the platform-facing function for Windows credential storage
+// This is used by the platform-neutral code
+func (k *KeyManager) storeInWindowsCredentialManager(apiKey string) error {
+	return k.windowsStoreInCredentialManager(apiKey)
+}
+
 // windowsGetFromCredentialManager retrieves the API key from Windows Credential Manager
+// This is the internal implementation
 func (k *KeyManager) windowsGetFromCredentialManager() (string, error) {
 	k.log("Retrieving API key from Windows Credential Manager...")
 	
@@ -27,6 +40,7 @@ func (k *KeyManager) windowsGetFromCredentialManager() (string, error) {
 }
 
 // windowsStoreInCredentialManager stores the API key in Windows Credential Manager
+// This is the internal implementation
 func (k *KeyManager) windowsStoreInCredentialManager(apiKey string) error {
 	k.log("Storing API key in Windows Credential Manager...")
 	

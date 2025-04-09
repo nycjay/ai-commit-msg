@@ -78,7 +78,7 @@ The `build.sh` script provides several options to customize the build process:
 The project uses a `VERSION` file to track the current version of the tool:
 
 - The version is automatically read from the `VERSION` file during build
-- To update the version, edit the `VERSION` file 
+- To update the version, edit the `VERSION` file
 - Example version update:
   ```bash
   echo "1.0.0" > VERSION  # Update to version 1.0.0
@@ -176,27 +176,27 @@ export GEMINI_API_KEY="your-gemini-key-here"
 
 Subcommands:
 init-prompts           Initialize custom prompt files in your config directory
-show-config           Display the current configuration
-list-providers        List all supported AI providers
-list-models          List available models (optionally for a specific provider)
+show-config            Display the current configuration
+list-providers         List all supported AI providers
+list-models            List available models (optionally for a specific provider)
 
 Subcommand Details:
-- `list-providers`: 
+- `list-providers`:
   Shows all supported AI providers for generating commit messages
   - Usage: `ai-commit-msg list-providers`
-  
+
 - `list-models`:
   Lists available models for all providers or for a specific provider
   - List models for all providers: `ai-commit-msg list-models`
   - List models for a specific provider: `ai-commit-msg list-models anthropic`
-  
+
 - `show-config`:
   Displays the current configuration settings, including:
   - Configuration directory
   - Current provider and model
   - Context lines
   - Verbosity level
-  
+
 - `init-prompts`:
   Initializes custom prompt files in your configuration directory
   - Usage: `ai-commit-msg init-prompts`
@@ -232,7 +232,7 @@ The tool supports multiple verbosity levels to provide more detailed information
 Use higher verbosity levels when:
 - Troubleshooting issues with the tool
 - Understanding exactly what data is being sent to the AI
-- Diagnosing problems with API responses 
+- Diagnosing problems with API responses
 - Seeing detailed information about your git repository and changes
 
 ### Configuration System
@@ -512,7 +512,7 @@ You can view and manage stored credentials using the Windows Credential Manager 
 
 The tool comes preconfigured with the following Jira issue type prefixes:
 - GTN
-- GTBUG  
+- GTBUG
 - TOOLS
 - TASK
 
@@ -528,7 +528,7 @@ If your organization uses different Jira issue type prefixes, you can add them b
 var JiraPrefixes = []string{
     "GTN",
     "GTBUG",
-    "TOOLS", 
+    "TOOLS",
     "TASK",
     "FEAT",    // Added custom prefix
     "PROJ-A",  // Added custom prefix

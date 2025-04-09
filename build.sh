@@ -138,8 +138,17 @@ run_tests() {
     TOTAL_COV=0
     PACKAGE_WITH_COV=0
     
+    # Create a temporary file to store coverage data
+    COV_DATA=$(mktemp)
+    grep "coverage:" "$TEST_OUTPUT" > "$COV_DATA"
+    
+    # Count the number of packages with coverage > 0
+    PACKAGES_WITH_REAL_COV=0
+    TOTAL_COVERAGE=0
+    
     # Process each line with coverage information
-    grep "coverage:" "$TEST_OUTPUT" | while read -r line; do
+    # Using direct file reading instead of pipe to avoid subshell variable scope issues
+    while read -r line; do
         # Get package name - extract the module part
         if [[ "$line" =~ github\.com/nycjay/ai-commit-msg/([^[:space:]]+) ]]; then
             # Found a package path that matches our repo
@@ -155,8 +164,8 @@ run_tests() {
             
             # Count packages with actual coverage
             if (( $(echo "$COV > 0" | bc -l) )); then
-                PACKAGE_WITH_COV=$((PACKAGE_WITH_COV + 1))
-                TOTAL_COV=$(echo "$TOTAL_COV + $COV" | bc)
+                PACKAGES_WITH_REAL_COV=$((PACKAGES_WITH_REAL_COV + 1))
+                TOTAL_COVERAGE=$(echo "$TOTAL_COVERAGE + $COV" | bc)
             fi
             
             # Color-code based on coverage percentage
@@ -171,15 +180,14 @@ run_tests() {
             # Print package with its coverage
             printf "${BLUE}│${NC} %-30s ${COV_COLOR}%5.1f%%${NC} ${BLUE}│${NC}\n" "$PKG_NAME" "$COV"
         fi
-    done
+    done < "$COV_DATA"
+    
+    # Clean up temporary file
+    rm -f "$COV_DATA"
     
     # Calculate average coverage if any packages have coverage
-    # First calculate total package count with coverage
-    PKG_COV_COUNT=$(echo "$PACKAGE_WITH_COV" | tr -d 'A-Za-z')
-    
-    # If we have packages with coverage, calculate the average
-    if [ "$PKG_COV_COUNT" != "" ] && [ "$PKG_COV_COUNT" -gt 0 ]; then
-        AVG_COV=$(echo "scale=1; $TOTAL_COV / $PKG_COV_COUNT" | bc)
+    if [ "$PACKAGES_WITH_REAL_COV" -gt 0 ]; then
+        AVG_COV=$(echo "scale=1; $TOTAL_COVERAGE / $PACKAGES_WITH_REAL_COV" | bc)
         
         # Color-code the overall coverage
         if (( $(echo "$AVG_COV >= 70" | bc -l) )); then
@@ -200,7 +208,7 @@ run_tests() {
     echo -e "${BLUE}└─────────────────────────────────────────────┘${NC}"
     
     # Add a warning for low coverage
-    if [ $PACKAGE_WITH_COV -gt 0 ] && (( $(echo "$AVG_COV < 50" | bc -l) )); then
+    if [ $PACKAGES_WITH_REAL_COV -gt 0 ] && (( $(echo "$AVG_COV < 50" | bc -l) )); then
         echo -e "${YELLOW}⚠️  Warning: Test coverage is below 50%. Consider adding more tests.${NC}"
         echo -e "${YELLOW}   Good tests verify both expected behaviors and edge cases.${NC}"
     fi
@@ -208,11 +216,11 @@ run_tests() {
     # Show test count summary
     echo -e "${BLUE}┌─ Test Summary ─────────────────────────────────┐${NC}"
     echo -e "${BLUE}│${NC} Total packages tested: $PACKAGE_COUNT"
-    echo -e "${BLUE}│${NC} Packages with coverage: $PACKAGE_WITH_COV/$PACKAGE_COUNT"
+    echo -e "${BLUE}│${NC} Packages with coverage: $PACKAGES_WITH_REAL_COV/$PACKAGE_COUNT"
     echo -e "${BLUE}└─────────────────────────────────────────────┘${NC}"
     
     # Check if tests are likely placeholder tests with no coverage
-    if [ $PACKAGE_WITH_COV -eq 0 ]; then
+    if [ $PACKAGES_WITH_REAL_COV -eq 0 ]; then
         echo -e "${YELLOW}⚠️  Warning: Tests appear to be placeholder tests with no actual coverage.${NC}"
         echo -e "${YELLOW}    Consider implementing real unit tests for the project.${NC}"
     fi

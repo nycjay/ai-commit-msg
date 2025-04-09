@@ -3,6 +3,7 @@ package key
 import (
 	"fmt"
 	"os"
+	"os/exec"
 	"runtime"
 	"strings"
 )
@@ -69,6 +70,7 @@ func NewKeyManager(verbose bool) *KeyManager {
 	}
 	
 	// Initialize with the platform-specific implementations
+	// The platformGetFromCredentialStore function will handle platform detection
 	km.getFromKeychainFn = km.platformGetFromCredentialStore
 	km.storeInKeychainFn = km.platformStoreInCredentialStore
 	
@@ -109,12 +111,25 @@ func (k *KeyManager) GetFromKeychain() (string, error) {
 
 // platformGetFromCredentialStore retrieves the API key from the platform-specific credential store
 func (k *KeyManager) platformGetFromCredentialStore() (string, error) {
+	// Simple platform check based on detected platform at runtime
 	switch k.platform {
 	case PlatformMac:
-		// We're using a different approach to avoid method name issues
-		return "", fmt.Errorf("macOS Keychain implementation requires macOS")
+		if runtime.GOOS == "darwin" {
+			// On macOS, use the security command to access the keychain
+			k.log("Executing keychain command to retrieve API key...")
+			cmd := exec.Command("security", "find-generic-password", "-s", k.keychainService, "-a", k.keychainAccount, "-w")
+			output, err := cmd.Output()
+			if err != nil {
+				// Don't return the error details as they might contain sensitive info or be verbose
+				return "", fmt.Errorf("failed to retrieve API key from macOS keychain")
+			}
+			return strings.TrimSpace(string(output)), nil
+		}
+		return "", fmt.Errorf("macOS Keychain is only available on macOS")
 	case PlatformWindows:
-		return "", fmt.Errorf("Windows Credential Manager implementation requires Windows")
+		// On Windows, we can't directly use the Windows Credential Manager here
+		// because of build constraints - Windows support is in the Windows-specific file
+		return "", fmt.Errorf("Windows Credential Manager is only available on Windows")
 	default:
 		return "", fmt.Errorf("no credential store available for platform: %s", k.platform)
 	}
@@ -127,12 +142,31 @@ func (k *KeyManager) StoreInKeychain(apiKey string) error {
 
 // platformStoreInCredentialStore stores the API key in the platform-specific credential store
 func (k *KeyManager) platformStoreInCredentialStore(apiKey string) error {
+	// Simple platform check based on detected platform at runtime
 	switch k.platform {
 	case PlatformMac:
-		// We're using a different approach to avoid method name issues
-		return fmt.Errorf("macOS Keychain implementation requires macOS")
+		if runtime.GOOS == "darwin" {
+			// On macOS, use the security command to access the keychain
+			
+			// First, try to delete any existing entry
+			k.log("Deleting any existing keychain entry...")
+			deleteCmd := exec.Command("security", "delete-generic-password", "-s", k.keychainService, "-a", k.keychainAccount)
+			// Ignore errors from delete as the entry might not exist
+			_ = deleteCmd.Run()
+			
+			// Add the new password
+			k.log("Adding new keychain entry (service='%s', account='%s')...", k.keychainService, k.keychainAccount)
+			addCmd := exec.Command("security", "add-generic-password", "-s", k.keychainService, "-a", k.keychainAccount, "-w", apiKey)
+			if err := addCmd.Run(); err != nil {
+				return fmt.Errorf("failed to store API key in macOS keychain")
+			}
+			return nil
+		}
+		return fmt.Errorf("macOS Keychain is only available on macOS")
 	case PlatformWindows:
-		return fmt.Errorf("Windows Credential Manager implementation requires Windows")
+		// On Windows, we can't directly use the Windows Credential Manager here
+		// because of build constraints - Windows support is in the Windows-specific file
+		return fmt.Errorf("Windows Credential Manager is only available on Windows")
 	default:
 		return fmt.Errorf("no credential store available for platform: %s", k.platform)
 	}

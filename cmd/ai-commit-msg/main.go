@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"strings"
 	"time"
 
@@ -451,15 +452,11 @@ func printConfigDetails() {
 	// Provider Configuration
 	fmt.Printf("Current Provider: %s\n", cfg.GetProvider())
 	
-	// Available Models
-	fmt.Println("\nAvailable Provider Models:")
-	providerModels := cfg.GetProviderModels()
-	for provider, model := range providerModels {
-		fmt.Printf("  %s: %s\n", provider, model)
-	}
-
-	// Current Model
-	fmt.Printf("\nCurrent Model: %s\n", cfg.GetModelName())
+	// Current Provider and Model
+	currentProvider := cfg.GetProvider()
+	currentModel := cfg.GetModelName()
+	fmt.Printf("Current Provider: %s\n", currentProvider)
+	fmt.Printf("Current Model: %s\n", currentModel)
 
 	// System and User Prompt Paths
 	systemPromptPath := cfg.GetSystemPromptPath()
@@ -1006,6 +1003,8 @@ func main() {
 				}
 			} else {
 				fmt.Println("Commit aborted.")
+				os.Exit(0)  // Exit the program after aborting
+				os.Exit(0)  // Exit the program after aborting
 			}
 		}
 	}
@@ -1017,62 +1016,9 @@ func main() {
 		}
 	}
 
-	// Generate commit message
-	providerName := cfg.GetProvider()
-	fmt.Printf("Generating commit message with %s...\n", strings.Title(providerName))
-	startTime := time.Now()
-	
-	// Use the multi-provider implementation if a provider is specified
-	var message string
-	
-	if providerName != "" && providerName != "anthropic" {
-		// Convert GitDiff to git.GitDiff for the new multi-provider implementation
-		gitDiffInfo := git.GitDiff{
-			StagedFiles:      diffInfo.StagedFiles,
-			Diff:             diffInfo.Diff,
-			Branch:           diffInfo.Branch,
-			JiraID:           diffInfo.JiraID,
-			JiraDescription:  diffInfo.JiraDescription,
-		}
-		
-		// Read prompts here since they're not in the original struct
-		systemPrompt, promptErr := readPromptFile("system_prompt.txt")
-		if promptErr != nil {
-			fmt.Printf("Error reading system prompt: %v\n", promptErr)
-			os.Exit(1)
-		}
-		
-		userPrompt, promptErr := readPromptFile("user_prompt.txt")
-		if promptErr != nil {
-			fmt.Printf("Error reading user prompt: %v\n", promptErr)
-			os.Exit(1)
-		}
-		
-		gitDiffInfo.SystemPrompt = systemPrompt
-		gitDiffInfo.UserPrompt = userPrompt
-		
-		// Use the new multi-provider implementation
-		message, err = generateCommitMessageMultiProvider(gitDiffInfo)
-	} else {
-		// Use the original implementation for backward compatibility
-		message, err = generateCommitMessage(cfg.GetAPIKey(), cfg.GetModelName(), diffInfo)
-	}
-	
-	if err != nil {
-		fmt.Printf("Error generating commit message: %v\n", err)
-		os.Exit(1)
-	}
-	logVerbose("Commit message generated in %.2f seconds", time.Since(startTime).Seconds())
-
-	// Display the suggested commit message
-	fmt.Println("\n" + strings.Repeat("=", 50))
-	fmt.Println("Suggested commit message:")
-	fmt.Println(strings.Repeat("=", 50))
-	fmt.Println(message)
-	fmt.Println(strings.Repeat("=", 50))
-
-	// We've already handled the commit process in the requiresGit condition
-	// No more handling needed here
+	// We've already generated and handled the commit message above, 
+	// so we shouldn't reach this point. This redundant code has been removed
+	// to prevent the double commit message generation issue.
 }
 
 func getGitDiff(jiraID string, jiraDesc string, contextLines int) (GitDiff, error) {
@@ -1415,21 +1361,85 @@ func editMessage(message string) (string, error) {
 	}
 	tempFile.Close()
 
-	// Get the editor from environment or default to vim
+	// Get the editor from environment variables or use system defaults
 	editor := os.Getenv("EDITOR")
 	if editor == "" {
-		editor = "vim"
+		editor = os.Getenv("VISUAL")
 	}
+	
+	// Even if an editor is specified, verify it exists
+	editorExists := false
+	if editor != "" {
+		_, err := exec.LookPath(editor)
+		editorExists = (err == nil)
+		if !editorExists {
+			logVerbose("Warning: Specified editor '%s' not found in PATH", editor)
+		}
+	}
+	
+	// If no editor is set or the specified one doesn't exist, find a suitable editor
+	if editor == "" || !editorExists {
+		// Check for common editors
+		possibleEditors := []string{"nano", "vim", "vi", "pico", "emacs", "code", "notepad", "edit", "open -e"}
+		for _, e := range possibleEditors {
+			// For simple commands (not paths with arguments)
+			if !strings.Contains(e, " ") {
+				// Look for the editor in PATH
+				_, err := exec.LookPath(e)
+				if err == nil {
+					editor = e
+					logVerbose("Found editor: %s", editor)
+					editorExists = true
+					break
+				}
+			} else {
+				// For complex commands like "open -e" on macOS
+				parts := strings.Split(e, " ")
+				_, err := exec.LookPath(parts[0])
+				if err == nil {
+					editor = e
+					logVerbose("Found editor: %s", editor)
+					editorExists = true
+					break
+				}
+			}
+		}
+		
+		// If we still don't have an editor, default to a simple one that's likely to exist
+		if !editorExists {
+			if runtime.GOOS == "windows" {
+				editor = "notepad"
+			} else if runtime.GOOS == "darwin" {
+				// On macOS, we can use the built-in TextEdit via 'open -e'
+				editor = "open -e"
+			} else {
+				editor = "vi" // Almost guaranteed to exist on Unix-like systems
+			}
+			logVerbose("Using default editor for platform: %s", editor)
+		}
+	}
+	
 	logVerbose("Using editor: %s", editor)
 
-	// Open the editor
+	// Open the editor - handle commands with arguments
 	logVerbose("Opening editor with temporary file: %s", tempFile.Name())
-	cmd := exec.Command(editor, tempFile.Name())
+	
+	var cmd *exec.Cmd
+	if strings.Contains(editor, " ") {
+		// For commands with arguments like "open -e"
+		parts := strings.Split(editor, " ")
+		args := append(parts[1:], tempFile.Name())
+		cmd = exec.Command(parts[0], args...)
+	} else {
+		// For simple commands like "vim"
+		cmd = exec.Command(editor, tempFile.Name())
+	}
+	
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	if err := cmd.Run(); err != nil {
-		return "", err
+		return "", fmt.Errorf("error running editor '%s': %v", editor, err)
 	}
 
 	// Read the edited content

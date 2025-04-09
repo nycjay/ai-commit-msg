@@ -9,7 +9,20 @@ import (
 	"strings"
 )
 
+// getFromMacKeychain is the platform-facing function for macOS keychain access
+// This is used by the platform-neutral code
+func (k *KeyManager) getFromMacKeychain() (string, error) {
+	return k.macGetFromKeychain()
+}
+
+// storeInMacKeychain is the platform-facing function for macOS keychain storage
+// This is used by the platform-neutral code
+func (k *KeyManager) storeInMacKeychain(apiKey string) error {
+	return k.macStoreInKeychain(apiKey)
+}
+
 // macGetFromKeychain retrieves the API key from Mac keychain
+// This is the internal implementation
 func (k *KeyManager) macGetFromKeychain() (string, error) {
 	k.log("Executing keychain command to retrieve API key...")
 	cmd := exec.Command("security", "find-generic-password", "-s", k.keychainService, "-a", k.keychainAccount, "-w")
@@ -22,6 +35,7 @@ func (k *KeyManager) macGetFromKeychain() (string, error) {
 }
 
 // macStoreInKeychain stores the API key in Mac keychain
+// This is the internal implementation
 func (k *KeyManager) macStoreInKeychain(apiKey string) error {
 	// First, try to delete any existing entry
 	k.log("Deleting any existing keychain entry...")
