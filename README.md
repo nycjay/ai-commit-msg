@@ -364,7 +364,7 @@ ai-commit-msg show-config    # Display the current configuration details
 
 Display version:
 ```bash
-ai-commit-msg --version     # Show the tool's version information
+ai-commit-msg --version      # Show the tool's version information
 ```
 
 ### Git alias (optional)
@@ -395,7 +395,7 @@ The tool supports multiple Large Language Model (LLM) providers, making it flexi
 You can select the provider to use with the `--provider` flag:
 
 ```bash
-ai-commit-msg --provider anthropic # Use Anthropic Claude
+ai-commit-msg --provider anthropic  # Use Anthropic Claude
 ai-commit-msg --provider openai     # Use OpenAI GPT
 ai-commit-msg --provider gemini     # Use Google Gemini
 ```
@@ -405,8 +405,8 @@ ai-commit-msg --provider gemini     # Use Google Gemini
 Each provider has its own set of available models. You can list all providers and their models with:
 
 ```bash
-ai-commit-msg list-providers       # List all supported providers
-ai-commit-msg list-models          # List models for all providers
+ai-commit-msg list-providers        # List all supported providers
+ai-commit-msg list-models           # List models for all providers
 ai-commit-msg list-models anthropic # List models for a specific provider
 ```
 
@@ -693,7 +693,3 @@ The key management system provides secure storage of API keys:
 1. Stage only related changes together for more focused commit messages
 2. Use the `-cc` or `-ccc` flags for more detailed commit messages
 3. For large changes, consider breaking them into smaller, logical commits
-
-## License
-
-MIT
