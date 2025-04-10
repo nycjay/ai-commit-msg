@@ -461,30 +461,36 @@ The interactive setup will:
 2. Provide guidance on where to obtain an API key
 3. Allow you to securely store the key in your system's credential manager
 
-### Provider-Specific Prompts
+## Custom Prompt Templates
 
-Each provider can have customized prompts tailored to their specific capabilities:
-
-```
-~/.config/ai-commit-msg/prompts/
-  ├── anthropic/
-  │    ├── system_prompt.txt
-  │    └── user_prompt.txt
-  ├── openai/
-  │    ├── system_prompt.txt
-  │    └── user_prompt.txt
-  └── gemini/
-       ├── system_prompt.txt
-       └── user_prompt.txt
-```
-
-To initialize these provider-specific prompt directories:
+The tool uses carefully crafted prompts to generate commit messages. You can customize these prompts to change how the messages are generated:
 
 ```bash
+# Initialize the prompt templates in your config directory
 ai-commit-msg init-prompts
 ```
 
-This command will create the directory structure and copy the default prompts for each provider, allowing you to customize them independently.
+This creates three files in your config directory:
+
+```
+~/.config/ai-commit-msg/prompts/
+├── system_prompt.txt   # Instructions for the LLM
+├── user_prompt.txt    # Template for standard context
+└── enhanced_user_prompt.txt  # Template for enhanced context
+```
+
+You can edit these files to customize:
+
+- The commit message format and style
+- The level of detail in explanations
+- How Jira IDs are handled
+- Additional instructions for the AI
+
+Alternatively, you can specify custom prompt files from any location:
+
+```bash
+ai-commit-msg --system-prompt /path/to/system_prompt.txt --user-prompt /path/to/user_prompt.txt
+```
 
 ### Switching Between Providers
 
@@ -612,30 +618,24 @@ The tool uses Claude AI with carefully crafted prompts to generate commit messag
 
 #### Available prompt files:
 
-Provider-specific prompts are organized in subdirectories:
-
-- `anthropic/system_prompt.txt` - Instructions for Claude about commit message style and formatting
-- `anthropic/user_prompt.txt` - Template for Claude with git diff information
-- `openai/system_prompt.txt` - Instructions for GPT models
-- `openai/user_prompt.txt` - Template for GPT models
-- `gemini/system_prompt.txt` - Instructions for Gemini models
-- `gemini/user_prompt.txt` - Template for Gemini models
+- `system_prompt.txt` - Instructions for the LLM about commit message style and formatting
+- `user_prompt.txt` - Template for git diff information (standard context)
+- `enhanced_user_prompt.txt` - Template for enhanced context mode
 
 #### Customizing without rebuilding:
 
-You can customize the prompts without rebuilding the tool using one of these methods:
+You can customize the prompts to change how commit messages are generated:
 
-1. **Initialize custom prompt files in your config directory**:
+1. **Initialize the default templates**:
    ```bash
    ai-commit-msg init-prompts
    ```
-   This will initialize provider-specific prompt directories in your config directory (`~/.config/ai-commit-msg/prompts/[provider]/` or equivalent). You can then edit these files to customize prompts for each provider.
+   This will create prompt files in your config directory (`~/.config/ai-commit-msg/prompts/`).
 
 2. **Specify custom prompt file paths**:
    ```bash
    ai-commit-msg --system-prompt /path/to/system_prompt.txt --user-prompt /path/to/user_prompt.txt
    ```
-   This allows you to use prompt files from any location.
 
 3. **Set custom prompt paths in the config file**:
    ```toml
@@ -652,9 +652,8 @@ You can customize the prompts without rebuilding the tool using one of these met
 The tool follows this order of precedence when looking for prompt files:
 1. Custom paths specified via command line flags
 2. Custom paths specified in the config file or environment variables
-3. Provider-specific files in the user's config directory (`~/.config/ai-commit-msg/prompts/[provider]/`)
-4. Default provider files in the tool's installation directory (`prompts/[provider]/`)
-5. Legacy default files in the tool's installation directory
+3. Files in the user's config directory (`~/.config/ai-commit-msg/prompts/`)
+4. Default files in the tool's installation directory
 
 #### When to customize:
 

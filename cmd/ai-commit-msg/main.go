@@ -531,40 +531,33 @@ func ensurePromptDirectoryExists() error {
 
 // copyPromptFile copies a prompt file from the executable directory to the user's prompt directory
 // if it doesn't already exist in the user's prompt directory
-func copyPromptFile(filename string, provider string) error {
+func copyPromptFile(filename string) error {
 	// Check if the prompt directory exists
 	promptDir, err := cfg.GetPromptDirectory()
 	if err != nil {
 		return err
 	}
 
-	// Create provider-specific prompt directory
-	providerDir := filepath.Join(promptDir, provider)
-	if err := os.MkdirAll(providerDir, 0755); err != nil {
-		return fmt.Errorf("failed to create provider prompt directory: %v", err)
+	// Create prompt directory if it doesn't exist
+	if err := os.MkdirAll(promptDir, 0755); err != nil {
+		return fmt.Errorf("failed to create prompt directory: %v", err)
 	}
 
-	// Check if the file already exists in the provider's prompt directory
-	destPath := filepath.Join(providerDir, filename)
+	// Check if the file already exists in the prompt directory
+	destPath := filepath.Join(promptDir, filename)
 	if _, err := os.Stat(destPath); err == nil {
 		// File already exists, no need to copy
 		return nil
 	}
 
-	// Try reading the file from the provider's directory in executable directory first
-	srcPath := filepath.Join(executableDir, "prompts", provider, filename)
+	// Read the file from the executable directory
+	srcPath := filepath.Join(executableDir, "prompts", filename)
 	content, err := os.ReadFile(srcPath)
-	
-	// If not found in provider's directory, fall back to the root prompts directory
 	if err != nil {
-		srcPath = filepath.Join(executableDir, "prompts", filename)
-		content, err = os.ReadFile(srcPath)
-		if err != nil {
-			return fmt.Errorf("failed to read source prompt file: %v", err)
-		}
+		return fmt.Errorf("failed to read source prompt file: %v", err)
 	}
 
-	// Write the file to the provider's prompt directory
+	// Write the file to the prompt directory
 	if err := os.WriteFile(destPath, content, 0644); err != nil {
 		return fmt.Errorf("failed to write destination prompt file: %v", err)
 	}
@@ -627,40 +620,18 @@ func main() {
 		promptDir, _ := cfg.GetPromptDirectory()
 		fmt.Printf("Prompt directory: %s\n", promptDir)
 		
-		// Define the providers to initialize
-		providers := []string{"anthropic", "openai", "gemini"}
-		
-		// Initialize prompts for each provider
-		for _, provider := range providers {
-			fmt.Printf("\nInitializing prompts for %s provider:\n", provider)
-			
-			// Create provider directory
-			providerDir := filepath.Join(promptDir, provider)
-			if err := os.MkdirAll(providerDir, 0755); err != nil {
-				fmt.Printf("Error: Failed to create directory for %s: %v\n", provider, err)
-				continue
-			}
-			
-			// Copy system prompt
-			if err := copyPromptFile("system_prompt.txt", provider); err != nil {
-				fmt.Printf("Error copying system prompt for %s: %v\n", provider, err)
+		// Copy prompt files
+		promptFiles := []string{"system_prompt.txt", "user_prompt.txt", "enhanced_user_prompt.txt"}
+		for _, file := range promptFiles {
+			if err := copyPromptFile(file); err != nil {
+				fmt.Printf("Error copying %s: %v\n", file, err)
 			} else {
-				fmt.Printf("Successfully copied system_prompt.txt for %s\n", provider)
-			}
-			
-			// Copy user prompt
-			if err := copyPromptFile("user_prompt.txt", provider); err != nil {
-				fmt.Printf("Error copying user prompt for %s: %v\n", provider, err)
-			} else {
-				fmt.Printf("Successfully copied user_prompt.txt for %s\n", provider)
+				fmt.Printf("Successfully copied %s\n", file)
 			}
 		}
 		
-		fmt.Println("\nInitialization complete. You can now edit these files to customize your prompts for each provider.")
-		fmt.Println("Provider-specific prompt directories:")
-		for _, provider := range providers {
-			fmt.Printf("  - %s: %s/%s/\n", provider, promptDir, provider)
-		}
+		fmt.Println("\nInitialization complete. You can now edit these files to customize your prompts.")
+		fmt.Printf("Prompt directory: %s\n", promptDir)
 		os.Exit(0)
 	}
 
