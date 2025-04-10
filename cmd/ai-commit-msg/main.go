@@ -449,9 +449,6 @@ func printConfigDetails() {
 	// Context Lines
 	fmt.Printf("Context Lines: %d\n", cfg.GetContextLines())
 
-	// Provider Configuration
-	fmt.Printf("Current Provider: %s\n", cfg.GetProvider())
-	
 	// Current Provider and Model
 	currentProvider := cfg.GetProvider()
 	currentModel := cfg.GetModelName()
