@@ -118,7 +118,7 @@ The tool will prompt you for your API key (input will be hidden) and offer to st
 ### 2. Store directly in credential manager
 
 ```bash
-# For Anthropic (default)
+# For Anthropic Claude
 ./ai-commit-msg --store-key --key your-anthropic-key-here
 
 # For OpenAI
@@ -131,7 +131,7 @@ The tool will prompt you for your API key (input will be hidden) and offer to st
 ### 3. Set as environment variable
 
 ```bash
-# For Anthropic (default)
+# For Anthropic Claude
 export ANTHROPIC_API_KEY="your-anthropic-key-here"
 
 # For OpenAI
@@ -165,7 +165,7 @@ export GEMINI_API_KEY="your-gemini-key-here"
 -c, --context N         Number of context lines to include in the diff (default: 3)
 -cc                     Include more context lines (10)
 -ccc                    Include maximum context (entire file)
--p, --provider NAME     Specify LLM provider to use (anthropic, openai, gemini) (default: anthropic)
+  -p, --provider NAME   Specify LLM provider to use (anthropic, openai, gemini)
 -m, --model MODEL       Specify model to use (provider-specific)
 --list-providers        List available providers
 --list-models           List available models for selected provider
@@ -326,7 +326,7 @@ Select a different AI provider:
 ```bash
 ai-commit-msg --provider openai     # Use OpenAI (GPT) models
 ai-commit-msg --provider gemini     # Use Google's Gemini models
-ai-commit-msg --provider anthropic  # Use Anthropic's Claude models (default)
+ai-commit-msg --provider anthropic  # Use Anthropic's Claude models
 ```
 
 Use different models:
@@ -395,7 +395,7 @@ The tool supports multiple Large Language Model (LLM) providers, making it flexi
 You can select the provider to use with the `--provider` flag:
 
 ```bash
-ai-commit-msg --provider anthropic  # Use Anthropic Claude (default)
+ai-commit-msg --provider anthropic # Use Anthropic Claude
 ai-commit-msg --provider openai     # Use OpenAI GPT
 ai-commit-msg --provider gemini     # Use Google Gemini
 ```
@@ -418,15 +418,9 @@ ai-commit-msg --provider openai --model gpt-4
 ai-commit-msg --provider gemini --model gemini-1.5-pro
 ```
 
-### Default Models
+### Provider-Specific Models
 
-Each provider has a default model that will be used if none is specified:
-
-- **Anthropic**: `claude-3-haiku-20240307` (fast, cost-effective)
-- **OpenAI**: `gpt-4o` (good balance of capability and cost)
-- **Gemini**: `gemini-1.5-pro` (Google's advanced model)
-
-You can change these defaults in your configuration file.
+Each provider has different models available. You can list all providers and their models with:
 
 ### API Keys
 
@@ -506,29 +500,18 @@ ai-commit-msg --provider openai
 # Switch to Gemini with a specific model
 ai-commit-msg --provider gemini --model gemini-1.5-pro
 
-# Make OpenAI your default provider
+# Set OpenAI as your preferred provider
 ai-commit-msg --provider openai --remember
 ```
 
 The `--remember` flag will update your configuration to use the specified provider for future runs.
 
-### Comparing Provider Results
+### Provider Selection
 
-Each provider has different strengths and may generate different commit messages. You might want to try different providers to see which produces the best results for your specific codebase and workflow.
+Once you've chosen your preferred provider, you can set it as your default for future commit messages:
 
 ```bash
-# Compare Anthropic
-ai-commit-msg --provider anthropic > anthropic-msg.txt
-
-# Compare OpenAI
-ai-commit-msg --provider openai > openai-msg.txt
-
-# Compare Gemini
-ai-commit-msg --provider gemini > gemini-msg.txt
-
-# Compare the results
-diff anthropic-msg.txt openai-msg.txt
-diff anthropic-msg.txt gemini-msg.txt
+ai-commit-msg --provider openai --remember
 ```
 
 ## Cross-Platform Support
@@ -561,28 +544,15 @@ To create a symlink in /usr/local/bin (macOS/Linux only) for global access:
 
 The tool automatically detects your operating system and uses the appropriate credential manager:
 
-- **macOS**: Uses the macOS Keychain for secure storage via the `security` command-line tool
+- **macOS**: Uses the macOS Keychain via the `security` command-line tool
 - **Windows**: Uses the Windows Credential Manager via the `wincred` package
-- **Linux**: No native credential store support, but environment variables still work
+- **Linux**: No native credential store support, but environment variables work instead
 
-On systems without a supported credential manager, the tool will automatically fall back to using environment variables and will provide appropriate guidance.
+On systems without a supported credential manager, the tool will automatically fall back to using environment variables and provide appropriate guidance.
 
-### Windows Support
+## Developer Information
 
-The Windows implementation uses the Windows Credential Manager (WCM) to securely store your API key:
-
-- **Target Name**: `ai-commit-msg:anthropic-api-key` (combines service and account name)
-- **Persistence**: LocalMachine level, making it available to all users on the machine
-
-You can view and manage stored credentials using the Windows Credential Manager in Control Panel:
-1. Open Control Panel
-2. Go to User Accounts
-3. Click on "Credential Manager"
-4. Look under "Generic Credentials" for entries with the name `ai-commit-msg:anthropic-api-key`
-
-## Customizing the Tool
-
-### Customizing Jira Issue Types
+### Extending Jira Support
 
 The tool comes preconfigured with the following Jira issue type prefixes:
 - GTN
@@ -591,11 +561,6 @@ The tool comes preconfigured with the following Jira issue type prefixes:
 - TASK
 
 If your organization uses different Jira issue type prefixes, you can add them by modifying the `pkg/git/jira.go` file:
-
-1. Open `pkg/git/jira.go` in your editor
-2. Locate the `JiraPrefixes` slice
-3. Add your organization's Jira prefixes to the list
-4. Rebuild the tool with `./build.sh`
 
 ```go
 // Example: Adding custom Jira prefixes
@@ -610,11 +575,11 @@ var JiraPrefixes = []string{
 }
 ```
 
-After adding your custom prefixes, the tool will recognize these in branch names and commit messages and include them properly in generated commit messages.
+After adding your custom prefixes, rebuild the tool with `./build.sh`.
 
 ### Customizing Prompts
 
-The tool uses Claude AI with carefully crafted prompts to generate commit messages. You can customize these prompts to change how the messages are generated:
+The tool uses carefully crafted prompts to generate commit messages. You can customize these prompts to change how the messages are generated:
 
 #### Available prompt files:
 
@@ -679,13 +644,7 @@ The project automatically runs all unit tests as part of the build process:
 ./build.sh --test-only
 ```
 
-The build script provides a comprehensive test report including:
-- A detailed coverage report for each package
-- Average coverage percentage across all packages
-- Warning indicators when coverage is too low (below 70%)
-- Clear indication if tests are just placeholders with no real coverage
-- Package-by-package test results
-- Detailed test output is shown when using `--verbose` flag
+The build script provides a comprehensive test report with coverage statistics for all packages.
 
 ### Running Tests Manually
 
@@ -700,46 +659,9 @@ go test -v ./...
 
 # Run tests for a specific package
 go test ./pkg/key
-
-# Run tests with code coverage
-go test -cover ./...
-
-# Generate code coverage report
-go test -coverprofile=coverage.out ./...
-go tool cover -html=coverage.out
 ```
 
-### Testing Components
-
-The tests are organized by component:
-
-1. **API Key Management Tests** - Testing the handling of API keys from various sources:
-   - Environment variables
-   - System credential managers (macOS Keychain, Windows Credential Manager)
-   - Command-line arguments
-   - Interactive input
-
-2. **Platform Detection Tests** - Testing the detection of the operating system and available credential stores
-
-3. **Git Integration Tests** - Testing the git diff extraction and commit functionality
-
-4. **Message Generation Tests** - Testing the Claude API integration and message processing
-
-5. **Argument Parsing Tests** - Testing command-line argument handling
-
-### Mock Testing
-
-Some tests use mock implementations to avoid dependencies on external systems:
-
-- Credential store operations are mocked to avoid modifying the actual system keychain
-- Git operations can be mocked to test without a real git repository
-- API calls to Claude are mocked to test without requiring a real API key
-
-### Test Organization
-
-Tests follow Go's standard pattern where test files are named `*_test.go` and placed alongside the code they test.
-
-## Project Architecture
+### Project Architecture
 
 The project is organized into several packages:
 
@@ -747,34 +669,30 @@ The project is organized into several packages:
 - **pkg/config**: Configuration management using Viper
 - **pkg/key**: API key management with cross-platform credential store support
 - **pkg/git**: Git operations and diff processing
-- **pkg/ai**: Claude AI integration
+- **pkg/ai**: LLM provider integration
 
 ### Configuration System
 
-The configuration system (in `pkg/config`) uses the [Viper](https://github.com/spf13/viper) library to provide a flexible and powerful configuration experience:
+The configuration system uses the [Viper](https://github.com/spf13/viper) library to provide a flexible configuration experience:
 
 - **Multiple sources**: Configuration can come from files, environment variables, and command-line flags
 - **Automatic binding**: Environment variables are automatically mapped to configuration fields
 - **Persistence**: Configuration can be saved to disk for future sessions
-- **Thread-safety**: All access to configuration is protected by mutexes
-- **XDG compliance**: Configuration files respect the XDG Base Directory Specification
 
 ### Credential Management
 
-The key management system (in `pkg/key`) provides secure storage of API keys:
+The key management system provides secure storage of API keys:
 
 - **Platform detection**: Automatically detects the platform and uses the appropriate credential store
-- **macOS support**: Uses the macOS Keychain via the `security` command-line tool
-- **Windows support**: Uses the Windows Credential Manager via the `wincred` package
+- **macOS support**: Uses the macOS Keychain
+- **Windows support**: Uses the Windows Credential Manager
 - **Environment fallback**: Falls back to environment variables when credential store is unavailable
-- **Secure input**: Reads API keys without echoing them to the terminal
 
-## Tips for best results
+## Tips for Best Results
 
 1. Stage only related changes together for more focused commit messages
-2. For large changes, consider breaking them into smaller, logical commits
-3. Use the `-cc` or `-ccc` flags when making small but significant changes
-4. Use the edit option to refine messages when needed
+2. Use the `-cc` or `-ccc` flags for more detailed commit messages
+3. For large changes, consider breaking them into smaller, logical commits
 
 ## License
 
