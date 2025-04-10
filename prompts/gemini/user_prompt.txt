@@ -1,25 +1,30 @@
-TASK: CREATE A GIT COMMIT MESSAGE
+I need a commit message for the following changes on branch '%s'.
 
-BRANCH: %s
-
-FILES CHANGED:
+Files changed:
 %s
 
-DIFF:
+Diff:
 %s
 
-JIRA ID: %s
+Jira ID: %s
 
-JIRA DESCRIPTION: %s
+Jira Description: %s
 
-COMMIT MESSAGE REQUIREMENTS:
-1. First line format: "<type>(<component>): <Jira ID> <short description>"
-2. First line must include the Jira ID specified above
+Please provide a commit message following this exact format:
+1. First line: "JIRA-ID: Brief summary of the issue"
+   - Example: "GTN-48046: Support a currency conversion function in datasets"
+   - Use the exact Jira ID provided above
+   - If a Jira description is provided above, use it for the first line summary
+2. A blank line
+3. Detailed description explaining WHY these changes were made and HOW they solve the problem
+
+Specific guidelines:
+1. First line MUST start with the exact Jira ID followed by colon and space
+2. Make sure the first line is under 80 characters
 3. If no Jira ID is provided, use a placeholder (GTBUG-??? or GTN-???)
-4. First line must be under 50 characters
-5. Add a blank line after the first line
-6. Add a detailed description explaining WHY the change was made
-7. Use bullet points for complex changes
-8. Use the appropriate component name based on the code being changed
+4. Analyze whether the change is a bugfix (GTBUG) or a feature (GTN) based on the nature of the changes
+5. Focus on the semantic meaning of the code changes, not just the syntax
+6. Use bullet points for complex changes with multiple aspects
+7. Explain the technical impact and business value of the change
 
-RESPOND ONLY WITH THE COMMIT MESSAGE, NO ADDITIONAL TEXT.
+Remember that your goal is to create a commit message that clearly explains the purpose and impact of the change to other developers reviewing the code.
