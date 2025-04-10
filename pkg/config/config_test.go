@@ -77,6 +77,18 @@ func TestConfigParseArgs(t *testing.T) {
 	if cfg.GetModelName() != "claude-3-opus-20240229" {
 		t.Errorf("Model name should be claude-3-opus-20240229, got %v", cfg.GetModelName())
 	}
+	
+	// Test -ccc flag enables enhanced context
+	args = []string{"program", "-ccc"}
+	cfg.ParseCommandLineArgs(args[1:])
+	
+	if cfg.GetContextLines() != -1 {
+		t.Errorf("-ccc should set context lines to -1, got %v", cfg.GetContextLines())
+	}
+	
+	if !cfg.IsEnhancedContextEnabled() {
+		t.Errorf("-ccc should enable enhanced context")
+	}
 
 	// Test combined flags
 	args = []string{"program", "-vas"}

@@ -23,3 +23,6 @@ ai-commit-msg-test
 
 # Build directory
 bin/
+
+# ClaudeCode's notes to itself
+ClaudeCode.md

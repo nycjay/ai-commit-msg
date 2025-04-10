@@ -4,15 +4,15 @@ A tool that uses AI to automatically generate high-quality git commit messages b
 
 ## Features
 
-- 🤖 Uses AI to analyze your code changes and generate meaningful commit messages
-- 🧠 Supports multiple LLM providers: Anthropic (Claude), OpenAI (GPT), and Google (Gemini)
+- 🤖 Uses AI to analyze code changes and generate meaningful commit messages
+- 🧠 Supports multiple LLM providers: Anthropic Claude, OpenAI GPT, and Google Gemini
 - 📝 Follows best practices for commit messages (conventional commits, imperative mood)
-- 🚀 No dependencies - single binary distribution
-- 🔐 Securely stores API key in your system's credential manager (macOS Keychain or Windows Credential Manager)
+- 🚀 Single binary distribution with no dependencies
+- 🔐 Securely stores API keys in your system's credential manager
 - ✏️ Interactive mode allows you to edit messages before committing
-- 🔄 Can be integrated directly into your git workflow
+- 🔄 Integrates directly into your git workflow
 - 💻 Cross-platform support for macOS and Windows
-- 📊 Configurable context levels for more accurate commit messages
+- 📊 Configurable context levels for accurate commit messages
 
 ## Installation
 
@@ -209,16 +209,16 @@ Examples:
   ai-commit-msg init-prompts        # Initialize custom prompt files details and settings
 ```
 
-### Context Control
+## Context Control
 
-The tool allows you to control how much surrounding code context is included when analyzing changes:
+Control how much code context is included in your commit messages:
 
 - Default (`ai-commit-msg`): 3 lines of context (git default)
 - Medium context (`ai-commit-msg -cc`): 10 lines of context
-- Maximum context (`ai-commit-msg -ccc`): Includes the entire file content
+- Enhanced context (`ai-commit-msg -ccc`): Full file content plus enhanced analysis of code structure, project context, and related files
 - Custom context (`ai-commit-msg --context 8`): Specify exact number of lines
 
-Including more context can help the AI better understand the purpose and impact of your changes, especially for small modifications to complex code.
+The enhanced context mode (`-ccc`) provides comprehensive analysis by including file summaries, commit history, and project context for generating high-quality commit messages.
 
 ### Verbosity Levels
 
@@ -287,8 +287,6 @@ The configuration system is designed to be:
 - **Non-intrusive**: Sensitive information (like API keys) is never stored in config files
 - **Persistent**: Remember your preferences between runs
 - **Flexible**: Multiple ways to configure based on your needs
-
-A sample configuration file is provided in [examples/config.toml](examples/config.toml).
 
 ### Examples
 
@@ -388,7 +386,7 @@ The tool supports multiple Large Language Model (LLM) providers, making it flexi
 
 ### Supported Providers
 
-- **Anthropic (Claude)**: The original provider, offering Claude models (default)
+- **Anthropic Claude**: High-quality language models with strong reasoning capabilities
 - **OpenAI**: Support for GPT models, including GPT-4 and GPT-3.5 Turbo
 - **Gemini**: Support for Google's Gemini models
 

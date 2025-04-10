@@ -65,14 +65,53 @@ func (p *GeminiProvider) GenerateCommitMessage(apiKey string, modelName string, 
 	userPromptTemplate := diffInfo.UserPrompt
 	
 	// Format the user prompt with the diff information
-	userPrompt := fmt.Sprintf(
-		userPromptTemplate,
-		diffInfo.Branch,
-		strings.Join(diffInfo.StagedFiles, "\n"),
-		diffInfo.Diff,
-		diffInfo.JiraID,
-		diffInfo.JiraDescription,
-	)
+	userPrompt := ""
+	
+	// Check if we have enhanced context fields
+	if diffInfo.ProjectContext != "" || len(diffInfo.FileSummaries) > 0 || len(diffInfo.CommitHistory) > 0 || len(diffInfo.RelatedFiles) > 0 {
+		// Format enhanced context
+		fileSummaries := ""
+		for file, summary := range diffInfo.FileSummaries {
+			fileSummaries += fmt.Sprintf("- %s: %s\n", file, summary)
+		}
+		
+		commitHistory := ""
+		for file, commits := range diffInfo.CommitHistory {
+			commitHistory += fmt.Sprintf("File: %s\n", file)
+			for _, commit := range commits {
+				commitHistory += fmt.Sprintf("  %s\n", commit)
+			}
+		}
+		
+		relatedFiles := ""
+		for _, file := range diffInfo.RelatedFiles {
+			relatedFiles += fmt.Sprintf("- %s\n", file)
+		}
+		
+		// Use the enhanced format with additional context
+		userPrompt = fmt.Sprintf(
+			userPromptTemplate,
+			diffInfo.Branch,
+			strings.Join(diffInfo.StagedFiles, "\n"),
+			diffInfo.Diff,
+			diffInfo.JiraID,
+			diffInfo.JiraDescription,
+			diffInfo.ProjectContext,
+			fileSummaries,
+			commitHistory,
+			relatedFiles,
+		)
+	} else {
+		// Use the regular format without enhanced context
+		userPrompt = fmt.Sprintf(
+			userPromptTemplate,
+			diffInfo.Branch,
+			strings.Join(diffInfo.StagedFiles, "\n"),
+			diffInfo.Diff,
+			diffInfo.JiraID,
+			diffInfo.JiraDescription,
+		)
+	}
 	
 	// Combine system and user prompts for Gemini
 	combinedPrompt := fmt.Sprintf("%s\n\n%s", systemPrompt, userPrompt)

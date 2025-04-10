@@ -50,6 +50,7 @@ type Config struct {
 	ModelName         string         `mapstructure:"model_name"`
 	SystemPromptPath  string         `mapstructure:"system_prompt_path"`
 	UserPromptPath    string         `mapstructure:"user_prompt_path"`
+	EnhancedContext   bool           `mapstructure:"enhanced_context"`
 	
 	// Provider configuration
 	Provider         string               `mapstructure:"provider"`
@@ -182,6 +183,7 @@ func (c *Config) SaveConfig() error {
 	c.v.Set("model_name", c.ModelName)
 	c.v.Set("system_prompt_path", c.SystemPromptPath)
 	c.v.Set("user_prompt_path", c.UserPromptPath)
+	c.v.Set("enhanced_context", c.EnhancedContext)
 	
 	// Provider-specific persistent settings
 	c.v.Set("provider", c.Provider)
@@ -219,6 +221,7 @@ func (c *Config) setDefaults() {
 	c.v.SetDefault("model_name", "claude-3-haiku-20240307") // Legacy default model
 	c.v.SetDefault("system_prompt_path", "")
 	c.v.SetDefault("user_prompt_path", "")
+	c.v.SetDefault("enhanced_context", false) // Enhanced context is disabled by default
 	
 	// Provider configuration defaults
 	c.v.SetDefault("provider", "anthropic") // Default to Anthropic for backward compatibility
@@ -383,6 +386,11 @@ func (c *Config) SetContextLines(lines int) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.ContextLines = lines
+	
+	// When using maximum context (-1), automatically enable enhanced context mode
+	if lines == -1 {
+		c.EnhancedContext = true
+	}
 }
 
 // GetAPIKey returns the API key
@@ -443,6 +451,20 @@ func (c *Config) SetUserPromptPath(path string) {
 	c.UserPromptPath = path
 }
 
+// IsEnhancedContextEnabled returns whether enhanced git context is enabled
+func (c *Config) IsEnhancedContextEnabled() bool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.EnhancedContext
+}
+
+// SetEnhancedContext sets whether enhanced git context is enabled
+func (c *Config) SetEnhancedContext(enabled bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.EnhancedContext = enabled
+}
+
 // StoreAPIKey stores the API key in the keychain
 func (c *Config) StoreAPIKey(key string) error {
 	return c.keyManager.StoreInKeychain(key)
@@ -468,7 +490,7 @@ func (c *Config) ParseCommandLineArgs(args []string) ([]string, error) {
 		"-s": true, "--store-key": true,
 		"-h": true, "--help": true,
 		"-cc": true, // Medium context level
-		"-ccc": true, // Maximum context level
+		"-ccc": true, // Maximum context level with enhanced mode
 		"--remember": true, // Remember settings for future use
 	}
 
@@ -508,9 +530,9 @@ func (c *Config) ParseCommandLineArgs(args []string) ([]string, error) {
 				c.ContextLines = 10 // Medium context
 			case "-ccc":
 				c.ContextLines = -1 // Signal for maximum context
+				c.EnhancedContext = true // Automatically enable enhanced context with -ccc
 			case "--remember":
 				c.RememberFlags = true
-
 			}
 			continue
 		}

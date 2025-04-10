@@ -13,6 +13,14 @@ type GitDiff struct {
 	JiraDescription string
 	SystemPrompt    string // Prompt for LLM system context
 	UserPrompt      string // Template for user prompt
+	
+	// Enhanced context fields
+	ProjectContext  string            // Brief context about the project
+	FileContents    map[string]string // Full content of modified files
+	FileTypes       map[string]string // File type information
+	CommitHistory   map[string][]string // Recent commit history for changed files
+	FileSummaries   map[string]string // Summarized information about each file
+	RelatedFiles    []string         // Related files that might provide context
 }
 
 // GetGitDiff retrieves information about staged changes

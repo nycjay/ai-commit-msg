@@ -167,17 +167,12 @@ func TestExtractJiraFromBranch(t *testing.T) {
 		},
 	}
 	
-	// This test would be better with a more modular code structure
-	// Since the code is not yet refactored for testability, this is a placeholder
-	// test that documents expected behavior
 	for _, tc := range testCases {
 		t.Run(tc.branch, func(t *testing.T) {
-			// We would call a function like:
-			// result := extractJiraFromBranch(tc.branch)
-			// if result != tc.expectedJira {
-			//     t.Errorf("Expected '%s', got '%s'", tc.expectedJira, result)
-			// }
-			t.Logf("Branch: %s should extract Jira ID: %s", tc.branch, tc.expectedJira)
+			result := extractJiraIDFromBranchName(tc.branch)
+			if result != tc.expectedJira {
+				t.Errorf("Expected '%s', got '%s'", tc.expectedJira, result)
+			}
 		})
 	}
 }

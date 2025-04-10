@@ -97,9 +97,9 @@ func printHelp() {
 	fmt.Println("  -v                    Enable verbose output (level 1)")
 	fmt.Println("  -vv                   Enable more verbose output (level 2)")
 	fmt.Println("  -vvv                  Enable debug output (level 3)")
-	fmt.Println("  -c, --context N       Number of context lines to include in the diff (default: 3)")
-	fmt.Println("  -cc                   Include more context lines (10)")
-	fmt.Println("  -ccc                  Include maximum context (entire file)")
+  fmt.Println("  -c, --context N       Number of context lines to include in the diff (default: 3)")
+  fmt.Println("  -cc                   Include more context lines (10)")
+  fmt.Println("  -ccc                  Include maximum context with enhanced analysis (entire file + code structure)")
 	fmt.Println("  -p, --provider NAME   Specify LLM provider to use (anthropic, openai, gemini) (default: anthropic)")
 	fmt.Println("  -m, --model MODEL     Specify model to use (provider-specific)")
 
@@ -253,9 +253,11 @@ func findExecutableDir() (string, error) {
 	return cwd, nil
 }
 
-// readPromptFile reads a prompt file from the appropriate location
-func readPromptFile(filename string) (string, error) {
+// readPromptFile reads a prompt file from the appropriate location and indicates if it's using a custom version
+func readPromptFile(filename string) (string, bool, string, error) {
 	var customPath string
+	var promptSource string
+	var isCustom bool
 
 	// Check if we have a custom prompt path for this file
 	if filename == "system_prompt.txt" && cfg.GetSystemPromptPath() != "" {
@@ -264,6 +266,16 @@ func readPromptFile(filename string) (string, error) {
 	} else if filename == "user_prompt.txt" && cfg.GetUserPromptPath() != "" {
 		customPath = cfg.GetUserPromptPath()
 		logVerbose("Using custom user prompt path: %s", customPath)
+	} else if filename == "enhanced_user_prompt.txt" && cfg.GetUserPromptPath() != "" {
+		// Check if a custom path was specified for the enhanced version too
+		customPath = cfg.GetUserPromptPath()
+		customPath = strings.Replace(customPath, "user_prompt.txt", "enhanced_user_prompt.txt", 1)
+		if _, err := os.Stat(customPath); err != nil {
+			// If the enhanced version doesn't exist, don't use the custom path
+			customPath = ""
+		} else {
+			logVerbose("Using custom enhanced user prompt path: %s", customPath)
+		}
 	}
 
 	// If we have a custom path, try to read it
@@ -271,7 +283,9 @@ func readPromptFile(filename string) (string, error) {
 		logVerbose("Reading prompt file from custom path: %s", customPath)
 		content, err := os.ReadFile(customPath)
 		if err == nil {
-			return string(content), nil
+			isCustom = true
+			promptSource = fmt.Sprintf("custom path: %s", customPath)
+			return string(content), isCustom, promptSource, nil
 		}
 		logVerbose("Failed to read custom prompt file: %v, falling back to default", err)
 	}
@@ -286,23 +300,26 @@ func readPromptFile(filename string) (string, error) {
 			logVerbose("Reading prompt file from config directory: %s", promptPath)
 			content, err := os.ReadFile(promptPath)
 			if err == nil {
-				return string(content), nil
+				isCustom = true
+				promptSource = fmt.Sprintf("config directory: %s", promptPath)
+				return string(content), isCustom, promptSource, nil
 			}
 			logVerbose("Failed to read prompt file from config directory: %v, falling back to default", err)
 		}
 	}
 
-	// Fall back to the executable directory
+	// Fall back to the executable directory (default prompts)
 	promptsDir := filepath.Join(executableDir, "prompts")
 	promptPath := filepath.Join(promptsDir, filename)
 
 	logVerbose("Reading prompt file from executable directory: %s", promptPath)
 	content, err := os.ReadFile(promptPath)
 	if err != nil {
-		return "", fmt.Errorf("failed to read prompt file from any location: %v", err)
+		return "", false, "", fmt.Errorf("failed to read prompt file from any location: %v", err)
 	}
 
-	return string(content), nil
+	promptSource = fmt.Sprintf("default: %s", promptPath)
+	return string(content), false, promptSource, nil
 }
 
 func parseArgs() (bool, bool, bool, bool, bool, bool, []string) {
@@ -447,7 +464,14 @@ func printConfigDetails() {
 	fmt.Printf("Verbosity: %s (Level %d)\n", verbosityNames[cfg.GetVerbosity()], cfg.GetVerbosity())
 
 	// Context Lines
-	fmt.Printf("Context Lines: %d\n", cfg.GetContextLines())
+	contextDescription := fmt.Sprintf("%d", cfg.GetContextLines())
+	if cfg.GetContextLines() == -1 {
+		contextDescription = "-1 (Maximum with enhanced analysis)"
+	}
+	fmt.Printf("Context Lines: %s\n", contextDescription)
+	
+	// Enhanced Context Status
+	fmt.Printf("Enhanced Context: %v\n", cfg.IsEnhancedContextEnabled())
 
 	// Current Provider and Model
 	currentProvider := cfg.GetProvider()
@@ -924,17 +948,48 @@ func main() {
 				JiraDescription: diffInfo.JiraDescription,
 			}
 			
-			// Read prompts for the multi-provider implementation
-			systemPrompt, promptErr := readPromptFile("system_prompt.txt")
+	// Read prompts for the multi-provider implementation
+			// Check if enhanced context is enabled
+			promptFileName := "system_prompt.txt"
+			systemPrompt, isCustomSystemPrompt, systemPromptSource, promptErr := readPromptFile(promptFileName)
 			if promptErr != nil {
 				fmt.Printf("Error reading system prompt: %v\n", promptErr)
 				os.Exit(1)
 			}
 			
-			userPrompt, promptErr := readPromptFile("user_prompt.txt")
+			promptFileName = "user_prompt.txt"
+			if cfg.IsEnhancedContextEnabled() {
+				promptFileName = "enhanced_user_prompt.txt"
+				logVerbose("Using enhanced user prompt template for %s", providerName)
+			}
+			
+			userPrompt, isCustomUserPrompt, userPromptSource, promptErr := readPromptFile(promptFileName)
 			if promptErr != nil {
-				fmt.Printf("Error reading user prompt: %v\n", promptErr)
-				os.Exit(1)
+				log(config.Verbose, "Enhanced prompt not found, falling back to standard prompt")
+				userPrompt, isCustomUserPrompt, userPromptSource, promptErr = readPromptFile("user_prompt.txt")
+				if promptErr != nil {
+					fmt.Printf("Error reading user prompt: %v\n", promptErr)
+					os.Exit(1)
+				}
+			}
+			
+			// Warn if using custom prompts
+			if isCustomSystemPrompt {
+				log(config.Normal, "⚠️  Using custom system prompt from %s", systemPromptSource)
+			}
+			if isCustomUserPrompt {
+				log(config.Normal, "⚠️  Using custom user prompt from %s", userPromptSource)
+			}
+			
+			// If enhanced context is enabled, we need to provide the enhanced fields
+			if cfg.IsEnhancedContextEnabled() && promptFileName == "enhanced_user_prompt.txt" {
+				// Initialize empty maps to satisfy the enhanced template
+				gitDiffInfo.FileContents = make(map[string]string)
+				gitDiffInfo.FileTypes = make(map[string]string)
+				gitDiffInfo.CommitHistory = make(map[string][]string)
+				gitDiffInfo.FileSummaries = make(map[string]string)
+				gitDiffInfo.RelatedFiles = make([]string, 0)
+				gitDiffInfo.ProjectContext = "" // Empty project context
 			}
 			
 			gitDiffInfo.SystemPrompt = systemPrompt
@@ -1019,6 +1074,26 @@ func main() {
 }
 
 func getGitDiff(jiraID string, jiraDesc string, contextLines int) (GitDiff, error) {
+	// Check if enhanced context is enabled
+	if cfg.IsEnhancedContextEnabled() {
+		// Use the enhanced git context
+		log(config.Verbose, "Using enhanced git context")
+		enhancedDiff, err := git.GetEnhancedGitDiff(jiraID, jiraDesc, contextLines)
+		if err != nil {
+			return GitDiff{}, err
+		}
+		
+		// Convert enhanced diff to regular diff
+		return GitDiff{
+			StagedFiles:     enhancedDiff.StagedFiles,
+			Diff:            enhancedDiff.Diff,
+			Branch:          enhancedDiff.Branch,
+			JiraID:          enhancedDiff.JiraID,
+			JiraDescription: enhancedDiff.JiraDescription,
+		}, nil
+	}
+
+	// Regular git diff logic
 	var diffInfo GitDiff
 	diffInfo.JiraID = jiraID
 	diffInfo.JiraDescription = jiraDesc
@@ -1222,26 +1297,73 @@ func getBranchInfo(diffInfo GitDiff) GitDiff {
 
 func generateCommitMessage(apiKey string, modelName string, diffInfo GitDiff) (string, error) {
 	// Read system prompt from file
-	systemPrompt, err := readPromptFile("system_prompt.txt")
+	systemPrompt, isCustomSystemPrompt, systemPromptSource, err := readPromptFile("system_prompt.txt")
 	if err != nil {
 		return "", fmt.Errorf("error reading system prompt: %v", err)
 	}
 
-	// Read user prompt template from file
-	userPromptTemplate, err := readPromptFile("user_prompt.txt")
+	// Read user prompt template from file - use enhanced template if enabled
+	promptFileName := "user_prompt.txt"
+	if cfg.IsEnhancedContextEnabled() {
+		promptFileName = "enhanced_user_prompt.txt"
+		log(config.Verbose, "Using enhanced user prompt template")
+	}
+	
+	userPromptTemplate, isCustomUserPrompt, userPromptSource, err := readPromptFile(promptFileName)
 	if err != nil {
-		return "", fmt.Errorf("error reading user prompt template: %v", err)
+		log(config.Verbose, "Enhanced prompt not found, falling back to standard prompt")
+		userPromptTemplate, isCustomUserPrompt, userPromptSource, err = readPromptFile("user_prompt.txt")
+		if err != nil {
+			return "", fmt.Errorf("error reading user prompt template: %v", err)
+		}
+	}
+	
+	// Warn if using custom prompts
+	if isCustomSystemPrompt {
+		log(config.Normal, "⚠️  Using custom system prompt from %s", systemPromptSource)
+	}
+	if isCustomUserPrompt {
+		log(config.Normal, "⚠️  Using custom user prompt from %s", userPromptSource)
 	}
 
 	// Format the user prompt with the diff information
-	userPrompt := fmt.Sprintf(
-		userPromptTemplate,
-		diffInfo.Branch,
-		strings.Join(diffInfo.StagedFiles, "\n"),
-		diffInfo.Diff,
-		diffInfo.JiraID,
-		diffInfo.JiraDescription,
-	)
+	userPrompt := ""
+	if cfg.IsEnhancedContextEnabled() {
+		// Use the diffInfo we already have, but convert it to enhanced format for the LLM
+		// This avoids making a second git diff call
+		log(config.Verbose, "Formatting with enhanced context for prompt")
+		
+		// Format project context, file summaries, etc. from the standard diff
+		// These will be empty/minimal since we're not calling git.GetEnhancedGitDiff again
+		projectContext := ""  // Minimal project context
+		fileSummaries := ""  // No detailed file summaries
+		commitHistory := ""  // No commit history
+		relatedFiles := ""   // No related files
+		
+		// Use the enhanced user prompt template
+		userPrompt = fmt.Sprintf(
+			userPromptTemplate,
+			diffInfo.Branch,
+			strings.Join(diffInfo.StagedFiles, "\n"),
+			diffInfo.Diff,
+			diffInfo.JiraID,
+			diffInfo.JiraDescription,
+			projectContext,
+			fileSummaries,
+			commitHistory,
+			relatedFiles,
+		)
+	} else {
+		// Regular format without enhanced context
+		userPrompt = fmt.Sprintf(
+			userPromptTemplate,
+			diffInfo.Branch,
+			strings.Join(diffInfo.StagedFiles, "\n"),
+			diffInfo.Diff,
+			diffInfo.JiraID,
+			diffInfo.JiraDescription,
+		)
+	}
 
 	log(config.Verbose, "Building Claude API request...")
 	log(config.Debug, "System prompt length: %d bytes", len(systemPrompt))
