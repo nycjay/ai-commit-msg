@@ -384,7 +384,7 @@ git claude
 
 ## Multi-Provider Support
 
-The tool now supports multiple Large Language Model (LLM) providers:
+The tool supports multiple Large Language Model (LLM) providers, making it flexible to work with your preferred AI service:
 
 ### Supported Providers
 
@@ -404,17 +404,31 @@ ai-commit-msg --provider gemini     # Use Google Gemini
 
 ### Provider-Specific Models
 
-Each provider has its own set of available models. You can list them with:
+Each provider has its own set of available models. You can list all providers and their models with:
 
 ```bash
-ai-commit-msg --list-models
+ai-commit-msg list-providers       # List all supported providers
+ai-commit-msg list-models          # List models for all providers
+ai-commit-msg list-models anthropic # List models for a specific provider
 ```
 
 And select a specific model with:
 
 ```bash
+ai-commit-msg --provider anthropic --model claude-3-opus-20240229
 ai-commit-msg --provider openai --model gpt-4
+ai-commit-msg --provider gemini --model gemini-1.5-pro
 ```
+
+### Default Models
+
+Each provider has a default model that will be used if none is specified:
+
+- **Anthropic**: `claude-3-haiku-20240307` (fast, cost-effective)
+- **OpenAI**: `gpt-4o` (good balance of capability and cost)
+- **Gemini**: `gemini-1.5-pro` (Google's advanced model)
+
+You can change these defaults in your configuration file.
 
 ### API Keys
 
@@ -434,9 +448,24 @@ ai-commit-msg --provider openai --store-key --key your-openai-key
 ai-commit-msg --provider gemini --store-key --key your-gemini-key
 ```
 
+The tool will securely store each provider's API key separately, so you can easily switch between providers without re-entering keys.
+
+### First-Time Setup with Different Providers
+
+When running the tool for the first time, you'll be guided through provider selection and API key setup:
+
+```bash
+ai-commit-msg
+```
+
+The interactive setup will:
+1. Ask you to select your preferred provider
+2. Provide guidance on where to obtain an API key
+3. Allow you to securely store the key in your system's credential manager
+
 ### Provider-Specific Prompts
 
-You can customize prompts for each provider in the respective directories:
+Each provider can have customized prompts tailored to their specific capabilities:
 
 ```
 ~/.config/ai-commit-msg/prompts/
@@ -451,10 +480,51 @@ You can customize prompts for each provider in the respective directories:
        └── user_prompt.txt
 ```
 
-Initialize these directories with:
+To initialize these provider-specific prompt directories:
 
 ```bash
 ai-commit-msg init-prompts
+```
+
+This command will create the directory structure and copy the default prompts for each provider, allowing you to customize them independently.
+
+### Switching Between Providers
+
+You can easily switch between providers in your workflow:
+
+```bash
+# Default workflow with Anthropic
+ai-commit-msg
+
+# Switch to OpenAI for a specific commit
+ai-commit-msg --provider openai
+
+# Switch to Gemini with a specific model
+ai-commit-msg --provider gemini --model gemini-1.5-pro
+
+# Make OpenAI your default provider
+ai-commit-msg --provider openai --remember
+```
+
+The `--remember` flag will update your configuration to use the specified provider for future runs.
+
+### Comparing Provider Results
+
+Each provider has different strengths and may generate different commit messages. You might want to try different providers to see which produces the best results for your specific codebase and workflow.
+
+```bash
+# Compare Anthropic
+ai-commit-msg --provider anthropic > anthropic-msg.txt
+
+# Compare OpenAI
+ai-commit-msg --provider openai > openai-msg.txt
+
+# Compare Gemini
+ai-commit-msg --provider gemini > gemini-msg.txt
+
+# Compare the results
+diff anthropic-msg.txt openai-msg.txt
+diff anthropic-msg.txt gemini-msg.txt
 ```
 
 ## Cross-Platform Support

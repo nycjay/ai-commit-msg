@@ -108,14 +108,20 @@ func TestValidateKey(t *testing.T) {
 
 // Test the key precedence logic
 func TestGetKey(t *testing.T) {
-	// Save original environment variable
-	originalValue := os.Getenv(EnvVarName)
-	defer os.Setenv(EnvVarName, originalValue)
+	// Save original environment variables
+	originalAnthropicValue := os.Getenv(EnvVarName)
+	originalOpenAIValue := os.Getenv(OpenAIEnvVar)
+	originalGeminiValue := os.Getenv(GeminiEnvVar)
+	defer func() {
+		os.Setenv(EnvVarName, originalAnthropicValue)
+		os.Setenv(OpenAIEnvVar, originalOpenAIValue)
+		os.Setenv(GeminiEnvVar, originalGeminiValue)
+	}()
 	
 	// Test cases
 	testCases := []struct {
 		name           string
-		cmdLineKey     string
+		provider       string
 		envKey         string
 		keychainKey    string
 		keychainError  error
@@ -123,32 +129,24 @@ func TestGetKey(t *testing.T) {
 		expectedResult string
 	}{
 		{
-			name:           "Command line key takes precedence",
-			cmdLineKey:     "cmd-line-key",
-			envKey:         "env-key",
-			keychainKey:    "keychain-key",
-			expectError:    false,
-			expectedResult: "cmd-line-key",
-		},
-		{
-			name:           "Environment variable used when no command line key",
-			cmdLineKey:     "",
+			name:           "Get Anthropic key from environment",
+			provider:       "anthropic",
 			envKey:         "env-key",
 			keychainKey:    "keychain-key",
 			expectError:    false,
 			expectedResult: "env-key",
 		},
 		{
-			name:           "Keychain used when no command line or env key",
-			cmdLineKey:     "",
+			name:           "Get Anthropic key from keychain",
+			provider:       "anthropic",
 			envKey:         "",
 			keychainKey:    "keychain-key",
 			expectError:    false,
 			expectedResult: "keychain-key",
 		},
 		{
-			name:           "Error when no key available",
-			cmdLineKey:     "",
+			name:           "Error when no Anthropic key available",
+			provider:       "anthropic",
 			envKey:         "",
 			keychainKey:    "",
 			expectError:    true,
@@ -156,7 +154,7 @@ func TestGetKey(t *testing.T) {
 		},
 		{
 			name:           "Error when keychain fails",
-			cmdLineKey:     "",
+			provider:       "anthropic",
 			envKey:         "",
 			keychainKey:    "",
 			keychainError:  fmt.Errorf("keychain error"),
@@ -167,16 +165,30 @@ func TestGetKey(t *testing.T) {
 	
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			// Setup environment variable
-			os.Setenv(EnvVarName, tc.envKey)
+			// Setup environment variable based on provider
+			switch tc.provider {
+			case "anthropic":
+				os.Setenv(EnvVarName, tc.envKey)
+				os.Setenv(OpenAIEnvVar, "")
+				os.Setenv(GeminiEnvVar, "")
+			case "openai":
+				os.Setenv(EnvVarName, "")
+				os.Setenv(OpenAIEnvVar, tc.envKey)
+				os.Setenv(GeminiEnvVar, "")
+			case "gemini":
+				os.Setenv(EnvVarName, "")
+				os.Setenv(OpenAIEnvVar, "")
+				os.Setenv(GeminiEnvVar, tc.envKey)
+			}
 			
 			// Create key manager with mocked keychain function
 			km := NewTestKeyManager(false)
 			
-			// Override the keychain getter with our mock
+			// Override the keychain getter for platform-specific credential store
 			origFn := km.getFromKeychainFn
 			defer func() { km.getFromKeychainFn = origFn }()
 			
+			// Mock getFromCredentialStore to always return the test keychain key
 			km.getFromKeychainFn = func() (string, error) {
 				if tc.keychainError != nil {
 					return "", tc.keychainError
@@ -184,8 +196,19 @@ func TestGetKey(t *testing.T) {
 				return tc.keychainKey, nil
 			}
 			
-			// Call method under test
-			result, err := km.GetKey(tc.cmdLineKey)
+			// We don't need to mock getFromCredentialStore since we're mocking getFromKeychainFn directly
+			
+			// Call method under test - now using provider-based method
+			var result string
+			var err error
+			
+			if tc.provider == "" || tc.provider == "anthropic" {
+				// This was the original implementation
+				result, err = km.GetProviderKey("anthropic", "")
+			} else {
+				// New provider-specific implementation
+				result, err = km.GetProviderKey(tc.provider, "")
+			}
 			
 			// Check error
 			if tc.expectError && err == nil {

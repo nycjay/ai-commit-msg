@@ -172,11 +172,11 @@ func (k *KeyManager) platformStoreInCredentialStore(apiKey string) error {
 	}
 }
 
-// GetKey retrieves the API key following the precedence order:
-// 1. command-line arg (if provided)
-// 2. environment variable
-// 3. credential store
-func (k *KeyManager) GetKey(cmdLineKey string) (string, error) {
+// The original method is now replaced by the enhanced version with provider support in provider_keys.go
+
+// GetKeyLegacy is the legacy version of GetKey without provider support
+// It's kept for backward compatibility, but should not be called directly.
+func (k *KeyManager) GetKeyLegacy(cmdLineKey string) (string, error) {
 	// Check if key was provided via command line
 	if cmdLineKey != "" {
 		k.log("Using API key provided via command line")
@@ -247,3 +247,7 @@ func (k *KeyManager) GetCredentialStoreName() string {
 func (k *KeyManager) SetVerbose(verbose bool) {
 	k.verbose = verbose
 }
+
+// This is defined in provider_keys.go - in key.go we just define GetKeyLegacy
+
+// This is used internally by the provider_keys.go implementation

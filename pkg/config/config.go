@@ -646,3 +646,36 @@ func (c *Config) IsStoreKeyEnabled() bool {
 	defer c.mu.RUnlock()
 	return c.StoreKey
 }
+
+// GetProviderAPIKey returns the API key for a specific provider
+func (c *Config) GetProviderAPIKey(providerName string) string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	
+	// Check provider-specific API key first
+	if c.ProviderKeys != nil {
+		if key, exists := c.ProviderKeys[providerName]; exists && key != "" {
+			return key
+		}
+	}
+	
+	// Format environment variable name
+	envVarName := strings.ToUpper(providerName) + "_API_KEY"
+	
+	// Check environment variable
+	if envKey := os.Getenv(envVarName); envKey != "" {
+		return envKey
+	}
+	
+	// Try getting from credential store
+	if key, err := c.keyManager.GetKey(providerName); err == nil && key != "" {
+		return key
+	}
+	
+	// Fall back to the default API key
+	if providerName == "anthropic" && c.APIKey != "" {
+		return c.APIKey
+	}
+	
+	return ""
+}

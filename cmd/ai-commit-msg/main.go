@@ -1335,6 +1335,38 @@ func generateCommitMessage(apiKey string, modelName string, diffInfo GitDiff) (s
 	return response.Content[0].Text, nil
 }
 
+// generateCommitMessageMultiProvider generates a commit message using the specified provider
+func generateCommitMessageMultiProvider(diffInfo git.GitDiff) (string, error) {
+	// Get provider name from config
+	providerName := cfg.GetProvider()
+	if providerName == "" {
+		providerName = string(ai.ProviderAnthropic) // Default to Anthropic
+	}
+	
+	// Create provider using factory
+	provider, err := ai.NewProvider(providerName)
+	if err != nil {
+		return "", fmt.Errorf("failed to create provider: %v", err)
+	}
+	
+	// Get API key for the provider
+	apiKey := cfg.GetProviderAPIKey(providerName)
+	if apiKey == "" {
+		return "", fmt.Errorf("no API key found for provider: %s", providerName)
+	}
+	
+	// Get model name from config, or use default
+	modelName := cfg.GetModelName()
+	if modelName == "" {
+		modelName = provider.GetDefaultModel()
+	}
+	
+	log(config.Verbose, "Using provider: %s with model: %s", providerName, modelName)
+	
+	// Generate commit message using the provider
+	return provider.GenerateCommitMessage(apiKey, modelName, diffInfo)
+}
+
 func commitWithMessage(message string) error {
 	logVerbose("Executing git commit command...")
 	cmd := exec.Command("git", "commit", "-m", message)

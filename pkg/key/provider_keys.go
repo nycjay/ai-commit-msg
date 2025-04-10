@@ -20,7 +20,19 @@ func (k *KeyManager) GetProviderKeyInfo(provider string) (string, string) {
 	}
 }
 
+// GetKey gets the API key for a specific provider using all available methods
+// This is the main implementation that other parts of the code should use
+func (k *KeyManager) GetKey(providerName string) (string, error) {
+	// Special case for the default provider (anthropic)
+	if providerName == "" {
+		providerName = "anthropic"
+	}
+	
+	return k.GetProviderKey(providerName, "")
+}
+
 // GetProviderKey gets the API key for a specific provider using all available methods
+// This implementation allows specifying a command-line key
 func (k *KeyManager) GetProviderKey(provider string, cmdLineKey string) (string, error) {
 	account, envVar := k.GetProviderKeyInfo(provider)
 	
